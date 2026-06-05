@@ -1,0 +1,44 @@
+{
+  "module_id": "base_si",
+  "name": "系统集成基础规范",
+  "version": "1.0.0",
+  "description": "系统集成项目通用规则：WBS、交付物、接口管理、变更控制",
+  "rules": [
+    {
+      "id": "si-wbs-001",
+      "title": "WBS完整性",
+      "description": "项目必须定义完整的WBS，覆盖需求、设计、实施、测试、验收各阶段",
+      "category": "project_management",
+      "severity": "high",
+      "checks": ["wbs:requirements", "wbs:design", "wbs:implementation", "wbs:testing", "wbs:acceptance"],
+      "references": ["PMBOK WBS", "系统集成项目管理规范"]
+    },
+    {
+      "id": "si-doc-001",
+      "title": "核心交付文档",
+      "description": "必须存在经审批的技术方案与验收报告",
+      "category": "documentation",
+      "severity": "high",
+      "checks": ["document:技术方案", "document:验收"],
+      "references": ["系统集成文档规范"]
+    },
+    {
+      "id": "si-int-001",
+      "title": "接口管理",
+      "description": "所有外部系统接口必须有接口设计文档和联调记录",
+      "category": "integration",
+      "severity": "medium",
+      "checks": ["document:接口"],
+      "references": ["接口管理最佳实践"]
+    },
+    {
+      "id": "si-chg-001",
+      "title": "变更控制",
+      "description": "重大变更必须经过变更评审并留存记录",
+      "category": "change_management",
+      "severity": "high",
+      "checks": ["document:变更"],
+      "references": ["变更管理流程"]
+    }
+  ]
+}
