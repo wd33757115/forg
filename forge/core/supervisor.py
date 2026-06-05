@@ -27,6 +27,7 @@ class AgentName(StrEnum):
     PROBLEM_SOLVER = "problem_solver"
     COMPLIANCE = "compliance"
     DOCUMENT = "document"
+    PM_ADVISOR = "pm_advisor"
     FINALIZE = "finalize"
     END = "__end__"
 
@@ -88,7 +89,7 @@ class Supervisor:
     Central orchestrator for the Forge agent graph.
 
     Closed-loop flow (problem-solving queries):
-        Supervisor → ProblemSolver → Compliance → (retry)* → Document → Finalize
+        Supervisor → ProblemSolver → Compliance → (retry)* → Document → PMAdvisor → Finalize
 
     Standalone flows (document / audit-only queries) route to a single specialist.
     """
@@ -223,10 +224,10 @@ class Supervisor:
             )
 
         return SupervisorDecision(
-            next_agent=AgentName.FINALIZE,
+            next_agent=AgentName.PM_ADVISOR,
             reason=(
                 f"non_compliant after {retry_count} retries — "
-                "finalizing with best effort + compliance gaps"
+                "PM advisory before finalize (docs skipped)"
             ),
             confidence=0.6,
         )
@@ -352,6 +353,8 @@ def route_after_supervisor(state: ProjectState) -> str:
         return AgentName.COMPLIANCE
     if next_agent == AgentName.DOCUMENT:
         return AgentName.DOCUMENT
+    if next_agent == AgentName.PM_ADVISOR:
+        return AgentName.PM_ADVISOR
     if next_agent == AgentName.FINALIZE:
         return AgentName.FINALIZE
     return AgentName.END
@@ -372,7 +375,7 @@ def route_after_compliance(state: ProjectState) -> str:
     if state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
         return AgentName.SUPERVISOR
 
-    return AgentName.FINALIZE
+    return AgentName.PM_ADVISOR
 
 
 def supervisor_post_compliance_node(state: ProjectState) -> dict[str, Any]:
@@ -398,6 +401,7 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     solution = state.get("last_solution") or {}
     compliance = state.get("last_compliance_result") or {}
     generated = state.get("generated_documents", [])
+    pm_advice = state.get("last_pm_advice") or {}
     retry_count = state.get("compliance_retry_count", 0)
 
     rec_id = solution.get("recommended_solution_id", "N/A")
@@ -413,6 +417,7 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "solution": solution,
         "compliance": compliance,
         "generated_documents": generated,
+        "pm_advice": pm_advice,
         "compliance_retry_count": retry_count,
         "document_generation": doc_generation,
         "compliance_status": comp_status,
@@ -459,6 +464,21 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
             lines.append(f"### [{doc.get('doc_type')}] {doc.get('title')}")
             lines.append(doc.get("content", "")[:800])
             lines.append("")
+
+    if pm_advice.get("summary"):
+        lines.extend(
+            [
+                "",
+                "## PMAdvisor 项目经理摘要",
+                pm_advice.get("summary", ""),
+                "",
+                "### 行动项",
+                *[
+                    f"- [{a.get('priority', 'P2')}] {a.get('title', '')}"
+                    for a in pm_advice.get("action_items", [])[:8]
+                ],
+            ]
+        )
 
     logger.info(
         "Finalize | compliance=%s risk=%s docs=%d retries=%d",

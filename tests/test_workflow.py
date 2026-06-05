@@ -7,7 +7,7 @@ from forge.core.supervisor import is_compliant, is_non_compliant
 
 
 def test_supervisor_routes_to_compliance_standalone():
-    """Standalone compliance audit: compliance → finalize."""
+    """Standalone compliance audit: compliance → pm_advisor → finalize."""
     app = compile_workflow()
     state = create_initial_state("test-001")
     state["messages"] = [HumanMessage(content="进行等保合规审计")]
@@ -17,6 +17,8 @@ def test_supervisor_routes_to_compliance_standalone():
     assert cr["risk_level"]
     assert len(cr["results"]) == 3
     assert result["last_compliance_result"] is not None
+    assert result["last_pm_advice"] is not None
+    assert result["final_output"]["pm_advice"]
     assert result["rule_pack"]["pack_id"] == "system_integration_v1"
 
 
@@ -37,9 +39,11 @@ def test_closed_loop_problem_solver_compliance():
     finalize_msgs = [m for m in result["messages"] if getattr(m, "name", None) == "forge_finalize"]
     assert len(finalize_msgs) == 1
     assert result.get("final_output") is not None
+    assert result.get("last_pm_advice") is not None
+    assert result["final_output"].get("pm_advice")
 
     # DocumentAgent only runs when compliant or partial
-    assert len(result.get("conversation_history", [])) >= 3
+    assert len(result.get("conversation_history", [])) >= 4
     if comp_status in ("compliant", "partial"):
         assert len(result.get("generated_documents", [])) == 5
         assert result["final_output"]["document_generation"] == "completed"
@@ -64,6 +68,7 @@ def test_state_has_loop_fields():
     assert state["last_solution"] is None
     assert state["last_compliance_result"] is None
     assert state["generated_documents"] == []
+    assert state["last_pm_advice"] is None
     assert state["final_output"] is None
     assert state["conversation_history"] == []
 

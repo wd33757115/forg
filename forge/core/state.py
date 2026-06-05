@@ -129,6 +129,7 @@ class ProjectState(TypedDict):
     last_solution: dict[str, Any] | None
     last_compliance_result: dict[str, Any] | None
     generated_documents: list[dict[str, Any]]
+    last_pm_advice: dict[str, Any] | None
     final_output: dict[str, Any] | None
     conversation_history: list[dict[str, Any]]
     active_workflow: str | None
@@ -161,6 +162,7 @@ def create_initial_state(
         last_solution=None,
         last_compliance_result=None,
         generated_documents=[],
+        last_pm_advice=None,
         final_output=None,
         conversation_history=[],
         active_workflow=None,

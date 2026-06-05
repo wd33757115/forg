@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage
 from forge.core import compile_workflow, create_initial_state
 from forge.utils.env import load_dotenv
 from forge.utils.logger import get_logger, setup_logging
+from forge.utils.state_persistence import default_state_path, save_state
 
 # ---------------------------------------------------------------------------
 # Terminal styling (disabled when NO_COLOR is set)
@@ -67,7 +68,11 @@ def banner() -> None:
     print()
     print(bold("╔══════════════════════════════════════════════════════════════╗"))
     print(bold("║") + cyan("   Forge — 项目级 AI 操作系统 Demo") + bold("                        ║"))
-    print(bold("║") + dim("   ProblemSolver → Compliance → Document") + bold("                  ║"))
+    print(
+        bold("║")
+        + dim("   ProblemSolver → Compliance → Document → PMAdvisor")
+        + bold("     ║")
+    )
     print(bold("╚══════════════════════════════════════════════════════════════╝"))
     print()
 
@@ -99,6 +104,15 @@ def run_forge(question: str, *, project_id: str = "cli-demo", protection_level: 
     return app.invoke(state)
 
 
+def _priority_color(priority: str) -> str:
+    p = priority.upper()
+    if p == "P0":
+        return red(priority)
+    if p == "P1":
+        return yellow(priority)
+    return dim(priority)
+
+
 def _get_recommended_solution(solution: dict) -> dict:
     rec_id = solution.get("recommended_solution_id", "")
     for sol in solution.get("solutions", []):
@@ -106,6 +120,76 @@ def _get_recommended_solution(solution: dict) -> dict:
             return sol
     solutions = solution.get("solutions", [])
     return solutions[0] if solutions else {}
+
+
+def print_pm_advisor(result: dict) -> None:
+    """Print project-manager advisory summary (highlighted final section)."""
+    final = result.get("final_output") or {}
+    pm = final.get("pm_advice") or result.get("last_pm_advice") or {}
+    if not pm:
+        section("项目经理视角总结 (PMAdvisor)")
+        print(yellow("  （未生成 PM 顾问报告）"))
+        return
+
+    section("项目经理视角总结 (PMAdvisor)")
+    print()
+    print(bold("  执行摘要"))
+    print(_wrap(pm.get("summary", ""), indent=4))
+
+    overview = pm.get("situation_overview", "")
+    if overview:
+        print(bold("\n  现状概述"))
+        print(_wrap(overview, indent=4))
+
+    findings = pm.get("key_findings", [])
+    if findings:
+        print(bold("\n  关键发现"))
+        for f in findings:
+            print(f"    • {f}")
+
+    risks = pm.get("risks", [])
+    if risks:
+        print(bold("\n  风险提示"))
+        for r in risks:
+            sev = r.get("severity", "medium")
+            sev_col = red if sev in ("high", "critical") else yellow
+            print(f"    • {bold(r.get('title', ''))} {sev_col(f'[{sev}]')}")
+            if r.get("impact"):
+                print(dim(f"      影响: {r['impact']}"))
+            if r.get("mitigation"):
+                print(dim(f"      缓解: {r['mitigation']}"))
+
+    recs = pm.get("recommendations", [])
+    if recs:
+        print(bold("\n  决策建议"))
+        for r in recs:
+            print(f"    → {r}")
+
+    actions = pm.get("action_items", [])
+    if actions:
+        print(bold("\n  行动项（按优先级）"))
+        for a in actions:
+            pri = _priority_color(a.get("priority", "P2"))
+            owner = a.get("owner", "待定")
+            hint = a.get("deadline_hint", "")
+            print(f"    [{pri}] {a.get('title', '')} — {owner}" + (f" ({hint})" if hint else ""))
+
+    decisions = pm.get("decision_points", [])
+    if decisions:
+        print(bold("\n  待决策事项"))
+        for d in decisions:
+            print(f"    ? {d}")
+
+    outline = pm.get("report_outline", [])
+    if outline:
+        print(bold("\n  汇报材料大纲"))
+        for line in outline:
+            print(f"    {line}")
+
+    notes = pm.get("stakeholder_notes", "")
+    if notes:
+        print(bold("\n  干系人沟通要点"))
+        print(_wrap(notes, indent=4))
 
 
 def print_result(result: dict, *, question: str = "") -> None:
@@ -211,6 +295,9 @@ def print_result(result: dict, *, question: str = "") -> None:
             summary = entry.get("summary", "")
             print(f"  {dim(ts)} {cyan(agent):<16} {event:<20} {summary}")
 
+    # --- PM Advisor (final highlighted section) ---
+    print_pm_advisor(result)
+
     # --- Footer ---
     print()
     print(bold("─" * 64))
@@ -240,6 +327,7 @@ EXAMPLE_QUESTIONS = [
 
 
 def _prompt_question() -> str:
+    print(dim("将运行完整流程: ProblemSolver → Compliance → Document → PMAdvisor\n"))
     print(bold("示例问题:"))
     for i, q in enumerate(EXAMPLE_QUESTIONS, 1):
         print(f"  {cyan(str(i))}. {q}")
@@ -272,6 +360,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="DEBUG 日志")
     parser.add_argument("--show-docs", action="store_true", help="打印完整资料内容")
     parser.add_argument("--log-file", help="日志输出文件")
+    parser.add_argument(
+        "--save-state",
+        nargs="?",
+        const="auto",
+        metavar="PATH",
+        help="将 ProjectState 保存为 JSON（默认 .forge_state/{project_id}.json）",
+    )
     args = parser.parse_args(argv)
 
     _configure_stdio()
@@ -293,7 +388,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(dim(f"项目 ID: {args.project_id} | 等保级别: {args.protection_level}"))
     print(dim(f"问题: {question}"))
-    print(dim("运行中… (ProblemSolver → Compliance → Document)\n"))
+    print(dim("运行中… (ProblemSolver → Compliance → Document → PMAdvisor)\n"))
 
     try:
         result = run_forge(
@@ -316,6 +411,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.show_docs and result.get("generated_documents"):
         print_documents_full(result)
+
+    if args.save_state:
+        state_path = (
+            default_state_path(args.project_id)
+            if args.save_state == "auto"
+            else args.save_state
+        )
+        saved = save_state(result, state_path)
+        print(dim(f"\n状态已保存: {saved}"))
 
     return 0
 
