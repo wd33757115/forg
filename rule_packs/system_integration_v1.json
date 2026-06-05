@@ -52,6 +52,33 @@
           "severity": "high",
           "checks": ["document:变更"],
           "references": ["变更管理流程"]
+        },
+        {
+          "id": "si-test-001",
+          "title": "测试与验收",
+          "description": "必须完成系统集成测试（SIT）、用户验收测试（UAT）并留存测试报告",
+          "category": "testing",
+          "severity": "high",
+          "checks": ["document:测试", "document:验收", "wbs:testing"],
+          "references": ["系统集成测试规范"]
+        },
+        {
+          "id": "si-sec-001",
+          "title": "安全集成要求",
+          "description": "集成方案须包含身份认证、传输加密、日志审计等安全设计",
+          "category": "security",
+          "severity": "high",
+          "checks": ["document:安全", "document:等保"],
+          "references": ["系统集成安全规范"]
+        },
+        {
+          "id": "si-ops-001",
+          "title": "运维移交",
+          "description": "项目验收前须完成运维文档移交和知识转移",
+          "category": "operations",
+          "severity": "medium",
+          "checks": ["document:运维", "document:移交"],
+          "references": ["运维移交 checklist"]
         }
       ]
     },
@@ -96,6 +123,33 @@
           "severity": "high",
           "checks": ["document:安全管理制度", "document:等保"],
           "references": ["GB/T 22239-2019 8.2.1.1"]
+        },
+        {
+          "id": "db-dat-001",
+          "title": "数据备份与恢复",
+          "description": "应提供重要数据的本地数据备份与恢复功能",
+          "category": "data_security",
+          "severity": "high",
+          "checks": ["document:备份", "document:恢复"],
+          "references": ["GB/T 22239-2019 8.1.4.6"]
+        },
+        {
+          "id": "db-mal-001",
+          "title": "恶意代码防范",
+          "description": "应安装防恶意代码软件，并及时更新",
+          "category": "host_security",
+          "severity": "high",
+          "checks": ["document:防病毒", "document:恶意代码"],
+          "references": ["GB/T 22239-2019 8.1.4.4"]
+        },
+        {
+          "id": "db-cry-001",
+          "title": "数据加密",
+          "description": "应采用密码技术保证重要数据在传输和存储过程中的保密性",
+          "category": "data_security",
+          "severity": "critical",
+          "checks": ["document:加密", "document:TLS"],
+          "references": ["GB/T 22239-2019 8.1.4.5 c)"]
         }
       ]
     },
@@ -149,6 +203,33 @@
           "severity": "medium",
           "checks": ["document:SLA", "document:服务级别"],
           "references": ["ITIL 4 Service Level Management", "ISO/IEC 20000-1 8.3"]
+        },
+        {
+          "id": "itil-rel-001",
+          "title": "发布管理",
+          "description": "软件/配置发布必须经过测试验证和发布审批",
+          "category": "release",
+          "severity": "medium",
+          "checks": ["document:发布", "document:release"],
+          "references": ["ITIL 4 Release Management"]
+        },
+        {
+          "id": "itil-ava-001",
+          "title": "可用性管理",
+          "description": "应定义服务可用性目标并持续监控",
+          "category": "availability",
+          "severity": "medium",
+          "checks": ["document:可用性", "document:availability"],
+          "references": ["ITIL 4 Availability Management"]
+        },
+        {
+          "id": "itil-km-001",
+          "title": "知识管理",
+          "description": "事件/问题解决方案应沉淀到知识库",
+          "category": "knowledge",
+          "severity": "low",
+          "checks": ["document:知识库"],
+          "references": ["ITIL 4 Knowledge Management"]
         }
       ]
     }

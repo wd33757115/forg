@@ -130,6 +130,7 @@ class ProjectState(TypedDict):
     last_compliance_result: dict[str, Any] | None
     generated_documents: list[dict[str, Any]]
     final_output: dict[str, Any] | None
+    conversation_history: list[dict[str, Any]]
     active_workflow: str | None
     workflow_step: str | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
@@ -161,6 +162,7 @@ def create_initial_state(
         last_compliance_result=None,
         generated_documents=[],
         final_output=None,
+        conversation_history=[],
         active_workflow=None,
         workflow_step=None,
         next_agent=None,

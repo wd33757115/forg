@@ -1,0 +1,89 @@
+{
+  "pack_id": "itil_basic_sample",
+  "name": "ITIL 4 基础实践示例",
+  "version": "1.0.0",
+  "description": "ITIL 4 核心管理实践与 ISO/IEC 20000 对齐的基础检查项",
+  "enabled_modules": ["itil_iso20000"],
+  "modules": {
+    "itil_iso20000": {
+      "module_id": "itil_iso20000",
+      "name": "ITIL 4 + ISO/IEC 20000 基础实践",
+      "version": "1.0.0",
+      "description": "事件、问题、变更、配置、服务级别管理基础要求",
+      "rules": [
+        {
+          "id": "itil-inc-001",
+          "title": "事件管理 — 记录与分类",
+          "description": "所有服务中断或质量下降必须记录为事件，按影响和紧急度分类（P1-P4）",
+          "category": "incident",
+          "severity": "high",
+          "checks": ["document:事件", "document:incident", "document:故障单"],
+          "references": ["ITIL 4 Incident Management", "ISO/IEC 20000-1 8.6"]
+        },
+        {
+          "id": "itil-inc-002",
+          "title": "事件管理 — 升级路径",
+          "description": "应定义事件升级矩阵，超时未解决自动升级至上级支持组",
+          "category": "incident",
+          "severity": "medium",
+          "checks": ["document:升级", "document:escalation"],
+          "references": ["ITIL 4 Incident Management"]
+        },
+        {
+          "id": "itil-prb-001",
+          "title": "问题管理 — 根因分析",
+          "description": "反复发生或重大影响的事件必须启动问题管理，执行根因分析（RCA）",
+          "category": "problem",
+          "severity": "high",
+          "checks": ["document:问题", "document:根因", "document:RCA"],
+          "references": ["ITIL 4 Problem Management", "ISO/IEC 20000-1 8.7"]
+        },
+        {
+          "id": "itil-chg-001",
+          "title": "变更管理 — 评估与授权",
+          "description": "所有变更必须经过影响评估、CAB审批后方可实施，保留回退方案",
+          "category": "change",
+          "severity": "high",
+          "checks": ["document:变更", "document:变更申请", "document:CAB"],
+          "references": ["ITIL 4 Change Enablement", "ISO/IEC 20000-1 8.5"]
+        },
+        {
+          "id": "itil-chg-002",
+          "title": "变更管理 — 紧急变更",
+          "description": "紧急变更须事后补办审批，并在48小时内完成回顾",
+          "category": "change",
+          "severity": "medium",
+          "checks": ["document:紧急变更"],
+          "references": ["ITIL 4 Change Enablement"]
+        },
+        {
+          "id": "itil-cfg-001",
+          "title": "配置管理 — CMDB",
+          "description": "所有配置项（CI）须录入CMDB，记录关系与版本，变更后同步更新",
+          "category": "configuration",
+          "severity": "medium",
+          "checks": ["document:CMDB", "document:配置", "document:配置项"],
+          "references": ["ITIL 4 Service Configuration Management"]
+        },
+        {
+          "id": "itil-slm-001",
+          "title": "服务级别管理 — SLA",
+          "description": "必须定义、协商并监控SLA指标（可用性、响应时间、解决时间）",
+          "category": "service_level",
+          "severity": "medium",
+          "checks": ["document:SLA", "document:服务级别"],
+          "references": ["ITIL 4 Service Level Management", "ISO/IEC 20000-1 8.3"]
+        },
+        {
+          "id": "itil-km-001",
+          "title": "知识管理 — 已知错误库",
+          "description": "问题解决方案应沉淀为已知错误（Known Error），供事件处理快速检索",
+          "category": "knowledge",
+          "severity": "low",
+          "checks": ["document:知识库", "document:已知错误"],
+          "references": ["ITIL 4 Knowledge Management"]
+        }
+      ]
+    }
+  }
+}

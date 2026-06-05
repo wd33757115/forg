@@ -11,6 +11,10 @@ from pydantic import BaseModel, Field
 from forge.core.rule_pack import DEFAULT_PACK_FILE, RulePack
 from forge.core.rule_pack_loader import RulePackLoader
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
+from forge.utils.conversation import record_conversation
+from forge.utils.logger import get_logger
+
+logger = get_logger("supervisor")
 
 # Maximum compliance-driven re-optimizations of the solution (after the first attempt)
 MAX_COMPLIANCE_RETRIES = 2
@@ -253,7 +257,12 @@ class Supervisor:
             # Entering retry: increment counter and inject feedback
             compliance = state.get("last_compliance_result") or {}
             retry_count = state.get("compliance_retry_count", 0) + 1
-            return {
+            logger.warning(
+                "Compliance retry %d/%d — feedback to ProblemSolver",
+                retry_count,
+                MAX_COMPLIANCE_RETRIES,
+            )
+            retry_updates: dict[str, Any] = {
                 "next_agent": AgentName.PROBLEM_SOLVER.value,
                 "compliance_retry_count": retry_count,
                 "workflow_step": WorkflowStep.INITIAL,
@@ -270,6 +279,20 @@ class Supervisor:
                     self._build_retry_feedback_message(compliance),
                 ],
             }
+            retry_updates.update(
+                record_conversation(
+                    state,
+                    agent="supervisor",
+                    event="compliance_retry",
+                    summary=f"第 {retry_count} 次合规重试，反馈给 ProblemSolver",
+                    detail={
+                        "retry_count": retry_count,
+                        "compliance_status": compliance.get("compliance_status"),
+                        "missing_count": len(compliance.get("missing_items", [])),
+                    },
+                )
+            )
+            return retry_updates
         else:
             decision = self.decide_initial(state)
 
@@ -302,6 +325,16 @@ class Supervisor:
             updates["last_solution"] = None
             updates["last_compliance_result"] = None
 
+        logger.info("Route → %s | %s", decision.next_agent, decision.reason)
+        updates.update(
+            record_conversation(
+                state,
+                agent="supervisor",
+                event="route",
+                summary=f"路由到 {decision.next_agent}: {decision.reason}",
+                detail={"next_agent": decision.next_agent.value, "step": str(step)},
+            )
+        )
         return updates
 
 
@@ -427,13 +460,31 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
             lines.append(doc.get("content", "")[:800])
             lines.append("")
 
-    return {
+    logger.info(
+        "Finalize | compliance=%s risk=%s docs=%d retries=%d",
+        comp_status,
+        risk,
+        len(generated),
+        retry_count,
+    )
+
+    finalize_updates: dict[str, Any] = {
         "next_agent": AgentName.END.value,
         "workflow_step": None,
         "active_workflow": None,
         "final_output": final_output,
         "messages": [AIMessage(content="\n".join(lines), name="forge_finalize")],
     }
+    finalize_updates.update(
+        record_conversation(
+            state,
+            agent="supervisor",
+            event="finalize",
+            summary=f"流程结束 | 合规={comp_status} | 资料={doc_generation}",
+            detail=final_output,
+        )
+    )
+    return finalize_updates
 
 
 def _safe_json(data: dict) -> str:

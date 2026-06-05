@@ -9,7 +9,11 @@ from forge.agents.document_output import DocumentOutput
 from forge.core.state import ProjectState
 from forge.prompts.document_prompt import DOCUMENT_SYSTEM
 from forge.tools.document_tools import generate_document_bundle
+from forge.utils.conversation import record_conversation
 from forge.utils.llm import invoke_llm
+from forge.utils.logger import get_logger
+
+logger = get_logger("document")
 
 
 class DocumentAgent(BaseAgent):
@@ -98,7 +102,9 @@ class DocumentAgent(BaseAgent):
             for doc in output.documents
         ]
 
-        return {
+        logger.info("Generated %d documents: %s", len(output.documents), output.doc_types_generated)
+
+        agent_updates: dict[str, Any] = {
             **self.reply(self._format_response(output)),
             "generated_documents": state.get("generated_documents", []) + generated_records,
             "documents": state.get("documents", []) + doc_refs,
@@ -108,6 +114,16 @@ class DocumentAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        agent_updates.update(
+            record_conversation(
+                state,
+                agent=self.name,
+                event="documents_generated",
+                summary=output.summary,
+                detail={"doc_types": output.doc_types_generated, "count": len(output.documents)},
+            )
+        )
+        return agent_updates
 
 
 document_node = DocumentAgent()

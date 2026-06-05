@@ -28,7 +28,11 @@ from forge.tools.compliance_tools import (
     run_all_compliance_checks,
     run_compliance_research,
 )
+from forge.utils.conversation import record_conversation
 from forge.utils.llm import get_llm
+from forge.utils.logger import get_logger
+
+logger = get_logger("compliance")
 
 
 class ComplianceAgent(BaseAgent):
@@ -292,7 +296,14 @@ class ComplianceAgent(BaseAgent):
         else:
             body = self._format_response(output)
 
-        return {
+        logger.info(
+            "Compliance check | status=%s risk=%s gaps=%d",
+            status_label,
+            output.risk_level,
+            len(output.missing_items),
+        )
+
+        agent_updates: dict[str, Any] = {
             **self.reply(body),
             "last_compliance_result": structured,
             "compliance_history": state.get("compliance_history", []) + [record],
@@ -304,6 +315,20 @@ class ComplianceAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        agent_updates.update(
+            record_conversation(
+                state,
+                agent=self.name,
+                event="compliance_check",
+                summary=f"合规检查完成: {status_label}（风险 {output.risk_level}）",
+                detail={
+                    "compliance_status": status_label,
+                    "risk_level": output.risk_level,
+                    "missing_count": len(output.missing_items),
+                },
+            )
+        )
+        return agent_updates
 
 
 compliance_node = ComplianceAgent()

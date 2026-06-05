@@ -1,15 +1,5 @@
-"""Lightweight logging helper for Forge."""
+"""Backward-compatible logging re-export."""
 
-from __future__ import annotations
+from forge.utils.logger import get_logger, setup_logging
 
-import logging
-
-
-def get_logger(name: str = "forge") -> logging.Logger:
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
+__all__ = ["get_logger", "setup_logging"]

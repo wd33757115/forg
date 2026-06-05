@@ -1,4 +1,4 @@
-"""Forge entry point — run from project root: python main.py \"你的问题\""""
+"""Forge entry point — run from project root: py main.py \"你的问题\" (Windows: use py, not Store stub python)"""
 
 from forge.main import main
 

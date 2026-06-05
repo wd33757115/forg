@@ -16,7 +16,11 @@ from forge.prompts.problem_solver_prompt import (
     PROBLEM_SOLVER_SYSTEM,
 )
 from forge.tools.problem_solver_tools import build_problem_solver_tools, run_tool_research
+from forge.utils.conversation import record_conversation
 from forge.utils.llm import get_llm
+from forge.utils.logger import get_logger
+
+logger = get_logger("problem_solver")
 
 
 class ProblemSolverAgent(BaseAgent):
@@ -360,7 +364,14 @@ class ProblemSolverAgent(BaseAgent):
                 "将交由 ComplianceAgent 进行合规检查…"
             )
 
-        return {
+        attempt = retry_count + 1
+        logger.info(
+            "Solution generated | id=%s attempt=%d",
+            solution.recommended_solution_id,
+            attempt,
+        )
+
+        agent_updates: dict[str, Any] = {
             **self.reply(response_body),
             "last_solution": solution_dict,
             "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
@@ -370,6 +381,20 @@ class ProblemSolverAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        agent_updates.update(
+            record_conversation(
+                state,
+                agent=self.name,
+                event="solution_generated",
+                summary=f"生成方案 {solution.recommended_solution_id}（第 {attempt} 次）",
+                detail={
+                    "recommended_solution_id": solution.recommended_solution_id,
+                    "root_causes": solution.root_causes,
+                    "attempt": attempt,
+                },
+            )
+        )
+        return agent_updates
 
 
 problem_solver_node = ProblemSolverAgent()

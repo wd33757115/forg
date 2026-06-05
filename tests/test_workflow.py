@@ -39,6 +39,7 @@ def test_closed_loop_problem_solver_compliance():
     assert result.get("final_output") is not None
 
     # DocumentAgent only runs when compliant or partial
+    assert len(result.get("conversation_history", [])) >= 3
     if comp_status in ("compliant", "partial"):
         assert len(result.get("generated_documents", [])) == 5
         assert result["final_output"]["document_generation"] == "completed"
@@ -64,6 +65,7 @@ def test_state_has_loop_fields():
     assert state["last_compliance_result"] is None
     assert state["generated_documents"] == []
     assert state["final_output"] is None
+    assert state["conversation_history"] == []
 
 
 def test_run_forge_cli_helper():

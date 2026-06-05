@@ -1,0 +1,89 @@
+{
+  "pack_id": "dengbao_level3_sample",
+  "name": "等保2.0 三级检查项示例",
+  "version": "1.0.0",
+  "description": "GB/T 22239-2019 第三级安全要求精选检查项，适用于系统集成项目等保测评准备",
+  "enabled_modules": ["dengbao_2.0"],
+  "modules": {
+    "dengbao_2.0": {
+      "module_id": "dengbao_2.0",
+      "name": "网络安全等级保护 2.0 — 三级",
+      "version": "1.0.0",
+      "description": "等保三级技术与管理要求核心控制项",
+      "rules": [
+        {
+          "id": "db3-acs-001",
+          "title": "身份鉴别（唯一性与鉴别失败处理）",
+          "description": "应对登录的用户进行身份标识和鉴别，身份标识具有唯一性；应提供登录失败处理功能，连续失败5次后锁定10分钟",
+          "category": "access_control",
+          "severity": "critical",
+          "checks": ["document:身份鉴别", "document:登录失败"],
+          "references": ["GB/T 22239-2019 8.1.4.1", "等保三级 8.1.4.1 a)"]
+        },
+        {
+          "id": "db3-acs-002",
+          "title": "访问控制（最小权限与权限分离）",
+          "description": "应遵循最小授权原则，实现管理用户权限分离，默认拒绝所有未授权访问",
+          "category": "access_control",
+          "severity": "critical",
+          "checks": ["document:访问控制", "document:RBAC"],
+          "references": ["GB/T 22239-2019 8.1.4.2"]
+        },
+        {
+          "id": "db3-aud-001",
+          "title": "安全审计（集中审计与保护）",
+          "description": "审计记录应包括日期、时间、用户、事件类型、结果；审计记录应至少保存6个月并防篡改",
+          "category": "audit",
+          "severity": "high",
+          "checks": ["document:安全审计", "document:日志", "document:审计策略"],
+          "references": ["GB/T 22239-2019 8.1.4.3"]
+        },
+        {
+          "id": "db3-net-001",
+          "title": "边界防护（访问控制策略）",
+          "description": "应在网络边界部署防火墙，配置访问控制策略，默认拒绝，仅开放必要端口",
+          "category": "network",
+          "severity": "critical",
+          "checks": ["document:防火墙", "document:边界", "document:ACL"],
+          "references": ["GB/T 22239-2019 8.1.2.1"]
+        },
+        {
+          "id": "db3-net-002",
+          "title": "入侵防范",
+          "description": "应在关键网络节点处检测、防止或限制从外部发起的网络攻击行为",
+          "category": "network",
+          "severity": "high",
+          "checks": ["document:入侵检测", "document:IDS", "document:IPS"],
+          "references": ["GB/T 22239-2019 8.1.2.2"]
+        },
+        {
+          "id": "db3-host-001",
+          "title": "恶意代码防范",
+          "description": "应安装防恶意代码软件并及时更新，支持统一管理",
+          "category": "host_security",
+          "severity": "high",
+          "checks": ["document:防病毒", "document:恶意代码"],
+          "references": ["GB/T 22239-2019 8.1.4.4"]
+        },
+        {
+          "id": "db3-dat-001",
+          "title": "数据完整性",
+          "description": "应采用校验技术保证重要数据在传输和存储过程中的完整性",
+          "category": "data_security",
+          "severity": "high",
+          "checks": ["document:数据完整性", "document:传输加密"],
+          "references": ["GB/T 22239-2019 8.1.4.5"]
+        },
+        {
+          "id": "db3-mgt-001",
+          "title": "安全管理制度",
+          "description": "应建立网络安全工作的总体方针和安全策略，并正式发布",
+          "category": "management",
+          "severity": "high",
+          "checks": ["document:安全管理制度", "document:安全策略"],
+          "references": ["GB/T 22239-2019 8.2.1.1"]
+        }
+      ]
+    }
+  }
+}
