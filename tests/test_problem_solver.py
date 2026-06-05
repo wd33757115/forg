@@ -78,9 +78,17 @@ def test_run_tool_research(base_state):
 def test_heuristic_solution_output_auth(base_state):
     agent = ProblemSolverAgent()
     research = run_tool_research(base_state, "用户登录接口返回401")
-    solution = agent._build_heuristic_solution(base_state, "用户登录接口返回401", research)
+    solution = agent._build_heuristic_solution(
+        base_state,
+        "用户登录接口返回401",
+        research,
+        "security",
+        "命中等保/安全关键词",
+    )
 
     assert isinstance(solution, SolutionOutput)
+    assert solution.problem_type == "security"
+    assert len(solution.rule_pack_references) >= 1
     assert len(solution.solutions) >= 2
     assert solution.recommended_solution_id in {s.id for s in solution.solutions}
     assert len(solution.root_causes) >= 1
@@ -99,6 +107,8 @@ def test_agent_run_produces_structured_knowledge(base_state):
     assert kb[0]["category"] == "problem_solution"
     assert "solution" in kb[0]["metadata"]
     assert kb[0]["metadata"]["recommended_solution_id"]
+    assert result.get("problem_type")
+    assert result.get("agent_context", {}).get("compliance")
 
 
 def test_solution_output_json_schema():

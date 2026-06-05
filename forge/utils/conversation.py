@@ -29,3 +29,31 @@ def record_conversation(
     history = list(state.get("conversation_history", []))
     history.append(entry)
     return {"conversation_history": history}
+
+
+def record_thinking(
+    state: dict[str, Any],
+    *,
+    agent: str,
+    thought: str,
+    decision: str | None = None,
+    evidence: list[str] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Record a thinking-chain step — key decisions and rationale for an agent.
+
+    Appears in ``conversation_history`` with ``event=thinking`` for CLI/API trace.
+    """
+    detail: dict[str, Any] = dict(extra or {})
+    if decision:
+        detail["decision"] = decision
+    if evidence:
+        detail["evidence"] = evidence
+    return record_conversation(
+        state,
+        agent=agent,
+        event="thinking",
+        summary=thought,
+        detail=detail,
+    )

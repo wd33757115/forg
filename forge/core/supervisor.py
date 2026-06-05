@@ -17,7 +17,7 @@ from forge.core.state import (
     WORKFLOW_SECURITY_STANDALONE,
     ProjectState,
 )
-from forge.utils.conversation import record_conversation
+from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.logger import get_logger, log_pipeline_step
 
 logger = get_logger("supervisor")
@@ -186,12 +186,27 @@ class Supervisor:
         )
         return any(kw in content for kw in compliance_keywords)
 
-    def _build_specialist_queue(self, content: str) -> list[str]:
+    def _resolve_intent_flags(self, content: str, state: ProjectState) -> tuple[bool, bool]:
+        """Combine keyword detection with CLI problem_type_hint."""
+        is_sec = self._is_security_intent(content)
+        is_ops = self._is_operations_intent(content)
+        hint = (state.get("problem_type_hint") or state.get("problem_type") or "").lower()
+        if hint in ("security",):
+            is_sec = True
+        elif hint in ("itil", "operations", "service_management"):
+            is_ops = True
+        elif hint in ("mixed",):
+            is_sec = is_ops = True
+        return is_sec, is_ops
+
+    def _build_specialist_queue(self, content: str, state: ProjectState | None = None) -> list[str]:
         """Ordered specialist chain: security before operations when both match."""
+        st: ProjectState = state or {}  # type: ignore[assignment]
+        is_sec, is_ops = self._resolve_intent_flags(content, st)
         return self._planner.build_specialist_queue(
             content,
-            is_security=self._is_security_intent(content),
-            is_operations=self._is_operations_intent(content),
+            is_security=is_sec,
+            is_operations=is_ops,
         )
 
     def _build_workflow_plan(self, content: str, *, entry_agent: AgentName) -> dict[str, Any]:
@@ -252,7 +267,8 @@ class Supervisor:
 
         if messages:
             content = getattr(messages[-1], "content", str(messages[-1])).lower()
-            specialist_queue = self._build_specialist_queue(content)
+            is_sec, is_ops = self._resolve_intent_flags(content, state)
+            specialist_queue = self._build_specialist_queue(content, state)
 
             if self._is_document_intent(content):
                 return SupervisorDecision(
@@ -272,13 +288,13 @@ class Supervisor:
                 )
 
             # Standalone security advisory (等保/测评 without technical problem keywords)
-            if self._is_security_intent(content):
+            if is_sec and not self._is_problem_intent(content):
                 return SupervisorDecision(
                     next_agent=AgentName.SECURITY,
                     reason="Standalone 等保 security advisory",
                 )
 
-            if self._is_operations_intent(content):
+            if is_ops and not self._is_problem_intent(content):
                 return SupervisorDecision(
                     next_agent=AgentName.OPERATIONS,
                     reason="Standalone ITIL operations advisory",
@@ -467,7 +483,7 @@ class Supervisor:
             updates["generated_documents"] = []
             updates["agent_errors"] = []
             updates["pipeline_trace"] = []
-            updates["specialist_queue"] = self._build_specialist_queue(last_content)
+            updates["specialist_queue"] = self._build_specialist_queue(last_content, {**state, **updates})
             updates["specialists_completed"] = []
 
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.SECURITY:
@@ -500,6 +516,20 @@ class Supervisor:
             run_id=state.get("run_id", "?"),
             step=f"supervisor.route → {decision.next_agent}",
             detail=decision.reason,
+        )
+        updates.update(
+            record_thinking(
+                state,
+                agent="supervisor",
+                thought=f"分析用户意图，选择入口 Agent: {decision.next_agent}",
+                decision=decision.reason,
+                evidence=list(updates.get("specialist_queue") or state.get("specialist_queue") or []),
+                extra={
+                    "next_agent": decision.next_agent.value,
+                    "step": str(step),
+                    "confidence": decision.confidence,
+                },
+            )
         )
         updates.update(
             record_conversation(

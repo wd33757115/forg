@@ -39,6 +39,12 @@ class ForgeSettings(BaseSettings):
     llm_max_retries: int = Field(default=3, ge=0, le=10, validation_alias="FORGE_LLM_MAX_RETRIES")
     llm_retry_delay: float = Field(default=1.0, ge=0.0, validation_alias="FORGE_LLM_RETRY_DELAY")
     llm_timeout: float = Field(default=120.0, ge=5.0, validation_alias="FORGE_LLM_TIMEOUT")
+    # structured output: auto | json_schema | function_calling | json_prompt
+    # DeepSeek v4+ often rejects response_format json_schema — use json_prompt
+    llm_structured_mode: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("FORGE_LLM_STRUCTURED_MODE", "LLM_STRUCTURED_MODE"),
+    )
 
     # Provider API keys (first non-empty wins per provider)
     deepseek_api_key: str | None = Field(default=None, validation_alias="DEEPSEEK_API_KEY")

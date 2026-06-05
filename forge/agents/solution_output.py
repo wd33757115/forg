@@ -7,6 +7,15 @@ from pydantic import BaseModel, Field
 from forge.agents.output_base import AgentOutputBase
 
 
+class RulePackReference(BaseModel):
+    """Citation of a Rule Pack clause used in the solution."""
+
+    rule_id: str
+    module: str
+    title: str
+    relevance: str = Field(default="", description="Why this rule applies")
+
+
 class SolutionOption(BaseModel):
     """A single remediation option with compliance and ITIL annotations."""
 
@@ -34,8 +43,16 @@ class SolutionOutput(AgentOutputBase):
     Serialized to JSON for downstream agents and human review.
     """
 
+    problem_type: str = Field(
+        default="technical",
+        description="security | service_management | technical | mixed",
+    )
     problem_analysis: str = Field(description="Structured analysis of the reported problem")
     root_causes: list[str] = Field(default_factory=list)
+    rule_pack_references: list[RulePackReference] = Field(
+        default_factory=list,
+        description="Rule Pack clauses cited in the analysis",
+    )
     solutions: list[SolutionOption] = Field(default_factory=list)
     recommended_solution_id: str = Field(
         description="ID of the recommended solution from the solutions list"

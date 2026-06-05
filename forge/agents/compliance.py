@@ -28,7 +28,8 @@ from forge.tools.compliance_tools import (
     run_all_compliance_checks,
     run_compliance_research,
 )
-from forge.utils.conversation import record_conversation
+from forge.utils.agent_context import get_handoff_payload
+from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
 from forge.utils.logger import get_logger
 
@@ -278,8 +279,14 @@ class ComplianceAgent(BaseAgent):
         in_closed_loop = state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP
         last_solution = state.get("last_solution")
 
+        handoff = get_handoff_payload(state, self.name)
         if in_closed_loop and last_solution:
             solution = SolutionOutput.model_validate(last_solution)
+            if handoff.get("rule_pack_references"):
+                refs = ", ".join(
+                    r.get("rule_id", "") for r in handoff["rule_pack_references"][:5]
+                )
+                logger.info("Compliance received handoff | refs=%s", refs)
             output = self.validate_solution(state, solution)
         else:
             output = self.run_compliance(state)
@@ -316,17 +323,32 @@ class ComplianceAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        thinking_detail = {
+            "compliance_status": status_label,
+            "risk_level": output.risk_level,
+            "missing_count": len(output.missing_items),
+        }
+        if handoff.get("recommended_solution_id"):
+            thinking_detail["validated_solution"] = handoff["recommended_solution_id"]
+        agent_updates.update(
+            record_thinking(
+                state,
+                agent=self.name,
+                thought=(
+                    f"对方案 {handoff.get('recommended_solution_id', 'N/A')} 执行合规校验，"
+                    f"结果 {status_label}，缺口 {len(output.missing_items)} 项"
+                ),
+                decision=output.next_action[:200] if output.next_action else None,
+                extra=thinking_detail,
+            )
+        )
         agent_updates.update(
             record_conversation(
                 state,
                 agent=self.name,
                 event="compliance_check",
                 summary=f"合规检查完成: {status_label}（风险 {output.risk_level}）",
-                detail={
-                    "compliance_status": status_label,
-                    "risk_level": output.risk_level,
-                    "missing_count": len(output.missing_items),
-                },
+                detail=thinking_detail,
             )
         )
         return agent_updates

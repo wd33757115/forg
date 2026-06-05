@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 
+from forge.cli.display import ForgeDisplay, collect_user_feedback
 from forge.core import compile_workflow, create_initial_state
 from forge.core.state import ProjectState
 from forge.core.supervisor import Supervisor
@@ -37,20 +38,23 @@ _USE_COLOR = not os.environ.get("NO_COLOR")
 
 CLI_EPILOG = """
 示例:
-  # 等保安全场景
-  py main.py --scenario security
+  # 直接输入问题
+  py main.py "等保三级登录401故障，请诊断"
 
-  # ITIL 运维场景
-  py main.py --scenario operations
+  # 按类型运行
+  py main.py --type security
+  py main.py --type itil
+  py main.py --type general
 
-  # 等保 + ITIL 混合场景
+  # 保存 / 加载
+  py main.py --type security --save
+  py main.py --load .forge_state/cli-demo.json "继续优化方案"
+
+  # 等保 + ITIL 混合
   py main.py --scenario mixed
 
   # 保存完整 JSON 结果
   py main.py --scenario security --save-result
-
-  # 自定义问题
-  py main.py "等保三级登录401故障，请诊断"
 
   # 交互式选择场景
   py main.py -i
@@ -154,6 +158,21 @@ SCENARIO_LABELS = {
     "general": "普通技术问题",
 }
 
+# --type shorthand (maps to problem_type_hint + default question)
+TYPE_ALIASES = {
+    "security": "security",
+    "itil": "operations",
+    "operations": "operations",
+    "general": "general",
+    "mixed": "mixed",
+}
+
+TYPE_LABELS = {
+    "security": "等保/安全 (security)",
+    "itil": "ITIL/服务管理 (itil)",
+    "general": "通用技术 (general)",
+}
+
 AGENT_DISPLAY = {
     "ProblemSolver": ("问题分析", "last_solution", "problem_analysis"),
     "Security": ("等保安全", "last_security_result", "diagnosis"),
@@ -190,6 +209,7 @@ def run_forge(
     *,
     project_id: str = "cli-demo",
     protection_level: str = "3",
+    problem_type_hint: str | None = None,
     initial_state: ProjectState | None = None,
 ) -> dict:
     """Execute the full Forge workflow from a fresh or resumed ProjectState."""
@@ -204,12 +224,16 @@ def run_forge(
             "pack_id": "system_integration_v1",
             "protection_level": protection_level,
         }
+        if problem_type_hint:
+            state["problem_type_hint"] = problem_type_hint
     else:
         state = prepare_state_for_run(
             initial_state,
             question,
             protection_level=protection_level,
         )
+        if problem_type_hint:
+            state["problem_type_hint"] = problem_type_hint
 
     logger.info(
         "Starting workflow | run_id=%s project=%s",
@@ -402,13 +426,20 @@ def print_result(result: dict, *, question: str = "") -> None:
         print(dim(f"  运行 ID: {run_id}"))
 
     print_pipeline_summary(result)
-    print_agent_contributions(result)
 
     section("问题分析 (ProblemSolver)")
     if solution:
+        ptype = solution.get("problem_type", result.get("problem_type", ""))
+        if ptype:
+            print(dim(f"  问题类型: {ptype}"))
         print(_wrap(solution.get("problem_analysis", "无分析结果")))
         for c in solution.get("root_causes", []):
             print(f"    • {c}")
+        refs = solution.get("rule_pack_references") or []
+        if refs:
+            print(dim("\n  Rule Pack 引用:"))
+            for r in refs[:5]:
+                print(f"    • [{r.get('rule_id')}] {r.get('title')}")
     else:
         print(yellow("  （无方案输出）"))
 
@@ -523,7 +554,18 @@ def _prompt_question() -> str:
     return choice
 
 
+def _resolve_type_hint(args: argparse.Namespace) -> str | None:
+    if getattr(args, "type", None):
+        return TYPE_ALIASES.get(args.type, args.type)
+    return None
+
+
 def _resolve_question(args: argparse.Namespace) -> str | None:
+    type_hint = _resolve_type_hint(args)
+    if type_hint and type_hint in SCENARIO_QUESTIONS and not args.question:
+        if args.type == "itil":
+            return SCENARIO_QUESTIONS["operations"]
+        return SCENARIO_QUESTIONS.get(type_hint) or SCENARIO_QUESTIONS["general"]
     if args.scenario:
         return SCENARIO_QUESTIONS[args.scenario]
     if args.example:
@@ -534,11 +576,20 @@ def _resolve_question(args: argparse.Namespace) -> str | None:
 
 
 def _resolve_state_path(args: argparse.Namespace) -> str | None:
+    if getattr(args, "load", None):
+        return args.load if args.load != "auto" else str(default_state_path(args.project_id))
     if args.load_state:
         return args.load_state
     if args.resume:
         return args.resume if args.resume != "auto" else str(default_state_path(args.project_id))
     return None
+
+
+def _llm_status_line() -> str:
+    cfg = resolve_llm_config()
+    if cfg is None:
+        return "未配置 API Key（启发式离线模式）"
+    return f"{cfg.provider} / {cfg.model} (重试≤{cfg.max_retries})"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -556,9 +607,33 @@ def main(argv: list[str] | None = None) -> int:
         help="预设示例 1=等保 2=ITIL 3=混合 4=通用",
     )
     parser.add_argument(
+        "--type",
+        choices=list(TYPE_ALIASES.keys()),
+        help="问题类型: security=等保 | itil=ITIL | general=通用 | mixed=混合",
+    )
+    parser.add_argument(
         "--scenario",
         choices=list(SCENARIO_QUESTIONS),
-        help="场景: security=等保 | operations=ITIL | mixed=混合 | general=通用",
+        help="场景预设（同 --type，保留兼容）: security | operations | mixed | general",
+    )
+    parser.add_argument(
+        "--save",
+        nargs="?",
+        const="auto",
+        metavar="PATH",
+        help="保存状态 + 运行结果 JSON（简写，默认 .forge_state/）",
+    )
+    parser.add_argument(
+        "--load",
+        nargs="?",
+        const="auto",
+        metavar="PATH",
+        help="加载已保存状态并继续运行（简写）",
+    )
+    parser.add_argument(
+        "--no-feedback",
+        action="store_true",
+        help="跳过运行结束后的满意度评分",
     )
     parser.add_argument("--project-id", default="cli-demo", help="项目 ID")
     parser.add_argument("--protection-level", default="3", choices=["1", "2", "3", "4", "5"])
@@ -613,6 +688,7 @@ def main(argv: list[str] | None = None) -> int:
     log_level = "DEBUG" if args.verbose else settings.log_level
     setup_logging(log_level, log_file=args.log_file)
     logger = get_logger("main")
+    display = ForgeDisplay(use_color=not os.environ.get("NO_COLOR"))
 
     if args.web:
         try:
@@ -625,7 +701,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.list_states:
-        banner()
+        display.banner()
         states = list_saved_states()
         if not states:
             print(yellow("  （暂无已保存状态，使用 --save-state 保存）"))
@@ -653,7 +729,7 @@ def main(argv: list[str] | None = None) -> int:
             print(red(f"加载状态失败: {exc}"))
             return 1
 
-    banner()
+    display.banner()
 
     if loaded_state and args.inspect:
         print_saved_state_summary(loaded_state, loaded_meta)
@@ -674,16 +750,22 @@ def main(argv: list[str] | None = None) -> int:
         print(red("错误: 问题不能为空"))
         return 1
 
-    scenario_label = detect_scenario_label(question)
-    print(dim(f"项目 ID: {args.project_id} | 等保级别: {args.protection_level}"))
-    print(dim(f"场景: {scenario_label}"))
-    print_llm_status()
-    if loaded_state:
-        print(dim(f"恢复自: {state_path}"))
-    print(dim(f"问题: {question}"))
-    print(dim("运行中… Supervisor 编排 → 多 Agent 协作流水线\n"))
+    type_hint = _resolve_type_hint(args)
+    scenario_label = TYPE_LABELS.get(args.type, "") if args.type else detect_scenario_label(question)
+    if not scenario_label:
+        scenario_label = detect_scenario_label(question)
+    display.print_run_header(
+        project_id=args.project_id,
+        protection_level=args.protection_level,
+        scenario=scenario_label,
+        question=question,
+        llm_line=_llm_status_line(),
+        loaded_from=str(state_path) if loaded_state else None,
+    )
+    display.info("运行中… Supervisor 编排 → 多 Agent 协作流水线\n")
 
     started = time.perf_counter()
+    problem_hint = type_hint or (args.scenario if args.scenario in TYPE_ALIASES else None)
     try:
         if loaded_state:
             # Merge project_id from CLI if resuming under same file
@@ -694,6 +776,7 @@ def main(argv: list[str] | None = None) -> int:
                 question,
                 project_id=loaded_state.get("project_id", args.project_id),
                 protection_level=args.protection_level,
+                problem_type_hint=problem_hint,
                 initial_state=loaded_state,
             )
         else:
@@ -701,6 +784,7 @@ def main(argv: list[str] | None = None) -> int:
                 question,
                 project_id=args.project_id,
                 protection_level=args.protection_level,
+                problem_type_hint=problem_hint,
             )
         result["_elapsed_ms"] = (time.perf_counter() - started) * 1000
     except KeyboardInterrupt:
@@ -717,28 +801,44 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     elapsed_ms = result.get("_elapsed_ms", 0)
-    print(dim(f"\n总耗时: {elapsed_ms / 1000:.2f}s\n"))
+    display.info(f"总耗时: {elapsed_ms / 1000:.2f}s")
 
     print_result(result, question=question)
+    display.print_thinking_chain(result.get("conversation_history") or [])
+    display.print_agent_contributions(result)
+    display.print_errors(result)
+    display.print_summary_footer(result, elapsed_ms=elapsed_ms)
+
+    if not args.no_feedback:
+        feedback_entry = collect_user_feedback(result, question=question)
+        if feedback_entry:
+            result["knowledge_base"] = list(result.get("knowledge_base", [])) + [feedback_entry]
+            display.success(f"感谢反馈！评分 {feedback_entry['metadata']['score']}/5 已记入知识库")
 
     if args.show_docs and result.get("generated_documents"):
         print_documents_full(result)
 
-    if args.save_state:
-        out_path = default_state_path(args.project_id) if args.save_state == "auto" else args.save_state
+    do_save_state = args.save_state or args.save
+    if do_save_state:
+        out_path = (
+            default_state_path(args.project_id)
+            if do_save_state == "auto"
+            else do_save_state
+        )
         saved = save_state(
             result,
             out_path,
             metadata={"last_question": question, "scenario": scenario_label},
         )
-        print(dim(f"\n状态已保存: {saved}"))
+        display.info(f"状态已保存: {saved}")
 
-    if args.save_result:
+    do_save_result = args.save_result or args.save
+    if do_save_result:
         run_id = result.get("run_id") or "unknown"
-        if args.save_result == "auto":
+        if do_save_result == "auto":
             out_json = default_run_result_path(run_id, args.project_id)
         else:
-            out_json = args.save_result
+            out_json = do_save_result
         saved_json = save_run_result(
             result,
             out_json,
@@ -746,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
             scenario=scenario_label,
             elapsed_ms=elapsed_ms,
         )
-        print(dim(f"运行结果 JSON: {saved_json}"))
+        display.info(f"运行结果 JSON: {saved_json}")
 
     return 0
 

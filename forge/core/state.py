@@ -145,6 +145,10 @@ class ProjectState(TypedDict):
     run_id: str | None
     final_output: dict[str, Any] | None
     conversation_history: list[dict[str, Any]]
+    agent_context: dict[str, Any]
+    problem_type: str | None
+    problem_type_hint: str | None
+    degraded_agents: list[str]
     active_workflow: str | None
     workflow_step: str | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
@@ -186,6 +190,10 @@ def create_initial_state(
         run_id=None,
         final_output=None,
         conversation_history=[],
+        agent_context={},
+        problem_type=None,
+        problem_type_hint=None,
+        degraded_agents=[],
         active_workflow=None,
         workflow_step=None,
         next_agent=None,
