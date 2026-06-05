@@ -23,12 +23,16 @@ __all__ = [
     "RulePack",
     "RulePackState",
     "WBSItem",
+    "WORKFLOW_OPERATIONS_STANDALONE",
     "WORKFLOW_PROBLEM_COMPLIANCE_LOOP",
+    "WORKFLOW_SECURITY_STANDALONE",
     "create_initial_state",
 ]
 
-# Closed-loop workflow identifier: ProblemSolver → Compliance → (retry) → finalize
+# Workflow identifiers
 WORKFLOW_PROBLEM_COMPLIANCE_LOOP = "problem_compliance_loop"
+WORKFLOW_SECURITY_STANDALONE = "security_standalone"
+WORKFLOW_OPERATIONS_STANDALONE = "operations_standalone"
 
 
 class WBSItem(BaseModel):
@@ -130,6 +134,10 @@ class ProjectState(TypedDict):
     last_compliance_result: dict[str, Any] | None
     generated_documents: list[dict[str, Any]]
     last_pm_advice: dict[str, Any] | None
+    last_security_result: dict[str, Any] | None
+    last_operations_result: dict[str, Any] | None
+    specialist_queue: list[str]
+    specialists_completed: list[str]
     final_output: dict[str, Any] | None
     conversation_history: list[dict[str, Any]]
     active_workflow: str | None
@@ -163,6 +171,10 @@ def create_initial_state(
         last_compliance_result=None,
         generated_documents=[],
         last_pm_advice=None,
+        last_security_result=None,
+        last_operations_result=None,
+        specialist_queue=[],
+        specialists_completed=[],
         final_output=None,
         conversation_history=[],
         active_workflow=None,

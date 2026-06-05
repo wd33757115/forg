@@ -10,7 +10,12 @@ from pydantic import BaseModel, Field
 
 from forge.core.rule_pack import DEFAULT_PACK_FILE, RulePack
 from forge.core.rule_pack_loader import RulePackLoader
-from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
+from forge.core.state import (
+    WORKFLOW_OPERATIONS_STANDALONE,
+    WORKFLOW_PROBLEM_COMPLIANCE_LOOP,
+    WORKFLOW_SECURITY_STANDALONE,
+    ProjectState,
+)
 from forge.utils.conversation import record_conversation
 from forge.utils.logger import get_logger
 
@@ -26,6 +31,8 @@ class AgentName(StrEnum):
     SUPERVISOR = "supervisor"
     PROBLEM_SOLVER = "problem_solver"
     COMPLIANCE = "compliance"
+    SECURITY = "security"
+    OPERATIONS = "operations"
     DOCUMENT = "document"
     PM_ADVISOR = "pm_advisor"
     FINALIZE = "finalize"
@@ -89,9 +96,11 @@ class Supervisor:
     Central orchestrator for the Forge agent graph.
 
     Closed-loop flow (problem-solving queries):
-        Supervisor → ProblemSolver → Compliance → (retry)* → Document → PMAdvisor → Finalize
+        Supervisor → ProblemSolver → (Security|Operations)* → Compliance
+            → (retry)* → Document → PMAdvisor → Finalize
 
-    Standalone flows (document / audit-only queries) route to a single specialist.
+    Specialist routing uses specialist_queue (security / operations) after ProblemSolver.
+    Standalone Security/Operations/Compliance flows route to a single entry specialist.
     """
 
     def __init__(self, rule_pack_path: str = DEFAULT_PACK_FILE) -> None:
@@ -126,23 +135,63 @@ class Supervisor:
     def _is_document_intent(self, content: str) -> bool:
         return any(kw in content for kw in ("文档", "document", "报告", "方案", "材料", "大纲"))
 
+    def _is_security_intent(self, content: str) -> bool:
+        """等保 / 安全 / 测评相关意图 — 优先 SecurityAgent。"""
+        security_keywords = (
+            "等保",
+            "安全",
+            "测评",
+            "dengbao",
+            "security",
+            "防火墙",
+            "审计",
+            "访问控制",
+            "渗透",
+            "漏洞",
+            "加固",
+            "边界",
+        )
+        return any(kw in content for kw in security_keywords)
+
+    def _is_operations_intent(self, content: str) -> bool:
+        """ITIL / 事件 / 变更相关意图 — 优先 OperationsAgent。"""
+        operations_keywords = (
+            "事件",
+            "问题管理",
+            "sla",
+            "变更",
+            "itil",
+            "incident",
+            "problem",
+            "cmdb",
+            "服务台",
+            "工单",
+            "cab",
+            "服务级别",
+        )
+        return any(kw in content for kw in operations_keywords)
+
     def _is_compliance_only_intent(self, content: str) -> bool:
         """Pure compliance audit without problem-solving (no closed loop)."""
         compliance_keywords = (
-            "等保",
             "合规",
             "compliance",
             "audit",
-            "测评",
-            "整改",
             "缺口",
             "gap",
             "扫描",
             "检查",
-            "审计",
-            "dengbao",
         )
         return any(kw in content for kw in compliance_keywords)
+
+    def _build_specialist_queue(self, content: str) -> list[str]:
+        """Ordered specialist chain: security before operations when both match."""
+        queue: list[str] = []
+        if self._is_security_intent(content):
+            queue.append(AgentName.SECURITY)
+        if self._is_operations_intent(content):
+            queue.append(AgentName.OPERATIONS)
+        return queue
 
     def decide_initial(self, state: ProjectState) -> SupervisorDecision:
         """Route a new user request to the appropriate entry agent."""
@@ -168,9 +217,20 @@ class Supervisor:
                     next_agent=AgentName.PROBLEM_SOLVER,
                     reason=f"Open problem-solving task: {task.get('title', '')}",
                 )
+            if assigned == AgentName.SECURITY:
+                return SupervisorDecision(
+                    next_agent=AgentName.SECURITY,
+                    reason=f"Open security task: {task.get('title', '')}",
+                )
+            if assigned == AgentName.OPERATIONS:
+                return SupervisorDecision(
+                    next_agent=AgentName.OPERATIONS,
+                    reason=f"Open operations task: {task.get('title', '')}",
+                )
 
         if messages:
             content = getattr(messages[-1], "content", str(messages[-1])).lower()
+            specialist_queue = self._build_specialist_queue(content)
 
             if self._is_document_intent(content):
                 return SupervisorDecision(
@@ -178,11 +238,28 @@ class Supervisor:
                     reason="Document generation intent",
                 )
 
-            # Problem + compliance keywords → closed loop starting at ProblemSolver
+            # Technical problem (+ optional specialist chain) → closed loop at ProblemSolver
             if self._is_problem_intent(content):
+                specialists = " → ".join(specialist_queue) if specialist_queue else "none"
                 return SupervisorDecision(
                     next_agent=AgentName.PROBLEM_SOLVER,
-                    reason="Problem-solving closed loop: ProblemSolver → Compliance",
+                    reason=(
+                        f"Problem-solving closed loop with specialists: "
+                        f"ProblemSolver → [{specialists}] → Compliance"
+                    ),
+                )
+
+            # Standalone security advisory (等保/测评 without technical problem keywords)
+            if self._is_security_intent(content):
+                return SupervisorDecision(
+                    next_agent=AgentName.SECURITY,
+                    reason="Standalone 等保 security advisory",
+                )
+
+            if self._is_operations_intent(content):
+                return SupervisorDecision(
+                    next_agent=AgentName.OPERATIONS,
+                    reason="Standalone ITIL operations advisory",
                 )
 
             if self._is_compliance_only_intent(content):
@@ -316,15 +393,27 @@ class Supervisor:
         last_content = ""
         if messages := state.get("messages"):
             last_content = str(getattr(messages[-1], "content", messages[-1])).lower()
-        if (
-            step == WorkflowStep.INITIAL
-            and decision.next_agent == AgentName.PROBLEM_SOLVER
-            and self._is_problem_intent(last_content)
-        ):
+        if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.PROBLEM_SOLVER:
             updates["active_workflow"] = WORKFLOW_PROBLEM_COMPLIANCE_LOOP
             updates["compliance_retry_count"] = 0
             updates["last_solution"] = None
             updates["last_compliance_result"] = None
+            updates["last_security_result"] = None
+            updates["last_operations_result"] = None
+            updates["specialist_queue"] = self._build_specialist_queue(last_content)
+            updates["specialists_completed"] = []
+
+        if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.SECURITY:
+            if not self._is_problem_intent(last_content):
+                updates["active_workflow"] = WORKFLOW_SECURITY_STANDALONE
+                updates["specialist_queue"] = [AgentName.SECURITY]
+                updates["specialists_completed"] = []
+
+        if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.OPERATIONS:
+            if not self._is_problem_intent(last_content):
+                updates["active_workflow"] = WORKFLOW_OPERATIONS_STANDALONE
+                updates["specialist_queue"] = [AgentName.OPERATIONS]
+                updates["specialists_completed"] = []
 
         logger.info("Route → %s | %s", decision.next_agent, decision.reason)
         updates.update(
@@ -344,6 +433,16 @@ class Supervisor:
 # ---------------------------------------------------------------------------
 
 
+def _pending_specialist(state: ProjectState) -> str | None:
+    """Return the next specialist in queue not yet completed."""
+    queue = state.get("specialist_queue", [])
+    done = set(state.get("specialists_completed", []))
+    for specialist in queue:
+        if specialist not in done:
+            return specialist
+    return None
+
+
 def route_after_supervisor(state: ProjectState) -> str:
     """Map supervisor next_agent to graph node."""
     next_agent = state.get("next_agent")
@@ -351,6 +450,10 @@ def route_after_supervisor(state: ProjectState) -> str:
         return AgentName.PROBLEM_SOLVER
     if next_agent == AgentName.COMPLIANCE:
         return AgentName.COMPLIANCE
+    if next_agent == AgentName.SECURITY:
+        return AgentName.SECURITY
+    if next_agent == AgentName.OPERATIONS:
+        return AgentName.OPERATIONS
     if next_agent == AgentName.DOCUMENT:
         return AgentName.DOCUMENT
     if next_agent == AgentName.PM_ADVISOR:
@@ -361,10 +464,41 @@ def route_after_supervisor(state: ProjectState) -> str:
 
 
 def route_after_problem_solver(state: ProjectState) -> str:
-    """In closed loop, always proceed to Compliance after ProblemSolver."""
-    if state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
+    """After ProblemSolver: run queued specialists, then Compliance."""
+    if state.get("active_workflow") != WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
+        return AgentName.END
+    pending = _pending_specialist(state)
+    if pending == AgentName.SECURITY:
+        return AgentName.SECURITY
+    if pending == AgentName.OPERATIONS:
+        return AgentName.OPERATIONS
+    return AgentName.COMPLIANCE
+
+
+def route_after_specialist_chain(state: ProjectState) -> str:
+    """Continue specialist queue or proceed to Compliance in closed loop."""
+    if state.get("active_workflow") != WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
+        return AgentName.PM_ADVISOR
+    pending = _pending_specialist(state)
+    if pending == AgentName.SECURITY:
+        return AgentName.SECURITY
+    if pending == AgentName.OPERATIONS:
+        return AgentName.OPERATIONS
+    return AgentName.COMPLIANCE
+
+
+def route_after_security(state: ProjectState) -> str:
+    """Standalone security → Compliance; closed loop → next specialist or Compliance."""
+    if state.get("active_workflow") == WORKFLOW_SECURITY_STANDALONE:
         return AgentName.COMPLIANCE
-    return AgentName.END
+    return route_after_specialist_chain(state)
+
+
+def route_after_operations(state: ProjectState) -> str:
+    """Standalone operations → PMAdvisor; closed loop → next specialist or Compliance."""
+    if state.get("active_workflow") == WORKFLOW_OPERATIONS_STANDALONE:
+        return AgentName.PM_ADVISOR
+    return route_after_specialist_chain(state)
 
 
 def route_after_compliance(state: ProjectState) -> str:
@@ -402,6 +536,8 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     compliance = state.get("last_compliance_result") or {}
     generated = state.get("generated_documents", [])
     pm_advice = state.get("last_pm_advice") or {}
+    security = state.get("last_security_result") or {}
+    operations = state.get("last_operations_result") or {}
     retry_count = state.get("compliance_retry_count", 0)
 
     rec_id = solution.get("recommended_solution_id", "N/A")
@@ -418,6 +554,8 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "compliance": compliance,
         "generated_documents": generated,
         "pm_advice": pm_advice,
+        "security": security,
+        "operations": operations,
         "compliance_retry_count": retry_count,
         "document_generation": doc_generation,
         "compliance_status": comp_status,
@@ -464,6 +602,26 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
             lines.append(f"### [{doc.get('doc_type')}] {doc.get('title')}")
             lines.append(doc.get("content", "")[:800])
             lines.append("")
+
+    if security.get("diagnosis"):
+        lines.extend(
+            [
+                "",
+                "## SecurityAgent 等保安全分析",
+                security.get("diagnosis", ""),
+                f"- 风险等级: {security.get('risk_level', 'N/A')}",
+            ]
+        )
+
+    if operations.get("situation_summary"):
+        lines.extend(
+            [
+                "",
+                "## OperationsAgent ITIL 运维分析",
+                operations.get("situation_summary", ""),
+                f"- 实践域: {operations.get('practice_area', 'N/A')}",
+            ]
+        )
 
     if pm_advice.get("summary"):
         lines.extend(

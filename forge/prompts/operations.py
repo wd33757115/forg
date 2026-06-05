@@ -1,0 +1,9 @@
+"""OperationsAgent prompt re-exports."""
+
+from forge.prompts.operations_prompt import (
+    OPERATIONS_REACT_TASK,
+    OPERATIONS_STRUCTURED_PROMPT,
+    OPERATIONS_SYSTEM,
+)
+
+__all__ = ["OPERATIONS_REACT_TASK", "OPERATIONS_STRUCTURED_PROMPT", "OPERATIONS_SYSTEM"]
