@@ -17,7 +17,7 @@ from forge.prompts.security_prompt import (
 )
 from forge.tools.security_tools import build_security_tools, run_security_research
 from forge.utils.conversation import record_conversation
-from forge.utils.llm import get_llm
+from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
 from forge.utils.logger import get_logger
 
 logger = get_logger("security")
@@ -69,14 +69,19 @@ class SecurityAgent(BaseAgent):
             protection_level=self._get_protection_level(state),
             current_phase=state.get("current_phase", ""),
         )
-        result = react_agent.invoke(
-            {
-                "messages": [
-                    SystemMessage(content=SECURITY_SYSTEM),
-                    HumanMessage(content=task),
-                ]
-            }
-        )
+        try:
+            result = invoke_react_agent(
+                react_agent,
+                {
+                    "messages": [
+                        SystemMessage(content=SECURITY_SYSTEM),
+                        HumanMessage(content=task),
+                    ]
+                },
+            )
+        except Exception as exc:
+            logger.warning("Security ReAct failed, heuristic fallback: %s", exc)
+            return run_security_research(state, context)
         final_messages = result.get("messages", [])
         if final_messages:
             return str(getattr(final_messages[-1], "content", final_messages[-1]))
@@ -189,24 +194,20 @@ class SecurityAgent(BaseAgent):
         context: str,
         research_context: str,
     ) -> SecurityOutput:
-        llm = get_llm(temperature=0.1)
-        if llm is not None:
-            try:
-                structured_llm = llm.with_structured_output(SecurityOutput)
-                prompt = SECURITY_STRUCTURED_PROMPT.format(
-                    context=context,
-                    research_context=research_context[:12000],
-                )
-                result = structured_llm.invoke(
-                    [
-                        SystemMessage(content=SECURITY_SYSTEM),
-                        HumanMessage(content=prompt),
-                    ]
-                )
-                if isinstance(result, SecurityOutput):
-                    return result
-            except Exception:
-                pass
+        prompt = SECURITY_STRUCTURED_PROMPT.format(
+            context=context,
+            research_context=escape_braces_for_format(research_context[:12000]),
+        )
+        result = invoke_structured_output(
+            SecurityOutput,
+            [
+                SystemMessage(content=SECURITY_SYSTEM),
+                HumanMessage(content=prompt),
+            ],
+            temperature=0.1,
+        )
+        if isinstance(result, SecurityOutput):
+            return result
         return self._build_heuristic_output(state, context, research_context)
 
     def _format_response(self, output: SecurityOutput) -> str:

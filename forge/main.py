@@ -6,6 +6,7 @@ import argparse
 import os
 import sys
 import textwrap
+import time
 import traceback
 from typing import Any
 from uuid import uuid4
@@ -15,8 +16,11 @@ from langchain_core.messages import HumanMessage
 from forge.core import compile_workflow, create_initial_state
 from forge.core.state import ProjectState
 from forge.core.supervisor import Supervisor
+from forge.config import get_settings
 from forge.utils.env import load_dotenv
+from forge.utils.llm import get_api_key, resolve_llm_config
 from forge.utils.logger import get_logger, setup_logging
+from forge.utils.result_serializer import default_run_result_path, save_run_result
 from forge.utils.state_persistence import (
     default_state_path,
     list_saved_states,
@@ -38,6 +42,12 @@ CLI_EPILOG = """
 
   # ITIL 运维场景
   py main.py --scenario operations
+
+  # 等保 + ITIL 混合场景
+  py main.py --scenario mixed
+
+  # 保存完整 JSON 结果
+  py main.py --scenario security --save-result
 
   # 自定义问题
   py main.py "等保三级登录401故障，请诊断"
@@ -130,13 +140,27 @@ def _wrap(text: str, indent: int = 2) -> str:
 SCENARIO_QUESTIONS = {
     "security": "等保三级系统登录认证失败返回401，请进行安全诊断并生成测评整改建议",
     "operations": "ITIL事件：核心交换机故障导致业务中断，请分析根因并给出变更与SLA建议",
+    "mixed": (
+        "等保三级系统登录401认证失败，同时核心交换机故障导致业务中断，"
+        "请综合进行安全诊断、ITIL事件分析、合规检查与整改方案"
+    ),
     "general": "数据库连接池耗尽导致接口超时，请给出合规的解决方案",
 }
 
 SCENARIO_LABELS = {
     "security": "等保/安全问题",
     "operations": "ITIL/运维事件",
+    "mixed": "等保+ITIL混合问题",
     "general": "普通技术问题",
+}
+
+AGENT_DISPLAY = {
+    "ProblemSolver": ("问题分析", "last_solution", "problem_analysis"),
+    "Security": ("等保安全", "last_security_result", "diagnosis"),
+    "Operations": ("ITIL运维", "last_operations_result", "situation_summary"),
+    "Compliance": ("合规检查", "last_compliance_result", "compliance_status"),
+    "Document": ("资料生成", "generated_documents", None),
+    "PMAdvisor": ("PM总结", "last_pm_advice", "summary"),
 }
 
 EXAMPLE_QUESTIONS = list(SCENARIO_QUESTIONS.values())
@@ -146,6 +170,8 @@ def detect_scenario_label(question: str) -> str:
     """Infer demo scenario from question keywords."""
     sup = Supervisor()
     lower = question.lower()
+    if sup._is_security_intent(lower) and sup._is_operations_intent(lower):
+        return SCENARIO_LABELS["mixed"]
     if sup._is_security_intent(lower) and sup._is_problem_intent(lower):
         return SCENARIO_LABELS["security"]
     if sup._is_operations_intent(lower) and sup._is_problem_intent(lower):
@@ -238,11 +264,53 @@ def print_pipeline_summary(result: dict) -> None:
 def print_agent_errors(result: dict) -> None:
     """Print recorded agent errors if any."""
     errors = result.get("agent_errors") or result.get("final_output", {}).get("agent_errors") or []
-    if not errors:
+    degraded = result.get("degraded_agents") or []
+    if not errors and not degraded:
         return
-    section("执行异常 (Agent Errors)")
+    section("执行异常与降级 (Errors & Degradation)")
     for err in errors:
-        print(red(f"  ✗ {err.get('agent', '?')}: {err.get('error', '')}"))
+        etype = err.get("error_type", "")
+        suffix = f" [{etype}]" if etype else ""
+        print(red(f"  ✗ {err.get('agent', '?')}: {err.get('error', '')}{suffix}"))
+    if degraded:
+        print(yellow(f"  ⚠ 已降级跳过的 Agent: {', '.join(degraded)}"))
+
+
+def print_agent_contributions(result: dict) -> None:
+    """Summarize each agent's contribution in a compact table."""
+    trace = result.get("pipeline_trace") or []
+    if not trace:
+        return
+
+    section("Agent 贡献摘要")
+    status_map = {e.get("agent"): e.get("status") for e in trace}
+
+    for agent_name, (label, state_key, preview_field) in AGENT_DISPLAY.items():
+        trace_key = agent_name.lower() if agent_name != "ProblemSolver" else "problem_solver"
+        if agent_name == "PMAdvisor":
+            trace_key = "pm_advisor"
+        status = status_map.get(trace_key, "—")
+        if status == "success":
+            icon = green("✓")
+        elif status == "failed":
+            icon = red("✗")
+        elif status == "running":
+            icon = yellow("…")
+        else:
+            icon = dim("○")
+
+        payload = result.get(state_key)
+        if state_key == "generated_documents":
+            preview = f"{len(payload or [])} 份资料" if payload else "未生成"
+        elif payload and preview_field:
+            val = payload.get(preview_field, "") if isinstance(payload, dict) else str(payload)
+            preview = (str(val)[:72] + "…") if len(str(val)) > 72 else str(val)
+        elif payload:
+            preview = "已产出"
+        else:
+            preview = dim("无输出")
+
+        print(f"  {icon} {bold(agent_name):<16} {dim(label):<10} {preview}")
 
 
 def print_security_result(result: dict) -> None:
@@ -334,6 +402,7 @@ def print_result(result: dict, *, question: str = "") -> None:
         print(dim(f"  运行 ID: {run_id}"))
 
     print_pipeline_summary(result)
+    print_agent_contributions(result)
 
     section("问题分析 (ProblemSolver)")
     if solution:
@@ -382,14 +451,31 @@ def print_result(result: dict, *, question: str = "") -> None:
     print_agent_errors(result)
     print_pm_advisor(result)
 
+    elapsed = result.get("_elapsed_ms")
     print()
     print(bold("─" * 64))
     contributed = _agents_contributed(result)
-    print(f"  {bold('完成')} | 合规={color(comp_status)} | 资料={len(docs)} 份 | 重试={retries} 次")
+    timing = f" | 耗时={elapsed / 1000:.1f}s" if elapsed else ""
+    print(
+        f"  {bold('完成')} | 合规={color(comp_status)} | 资料={len(docs)} 份 | "
+        f"重试={retries} 次{timing}"
+    )
     if contributed:
         print(dim(f"  参与 Agent: {', '.join(contributed)}"))
+    errors = result.get("agent_errors") or []
+    if errors:
+        print(yellow(f"  ⚠ {len(errors)} 个 Agent 异常（见上方错误详情）"))
     print(bold("─" * 64))
     print()
+
+
+def print_llm_status() -> None:
+    """Show configured LLM provider (no secrets)."""
+    cfg = resolve_llm_config()
+    if cfg is None:
+        print(yellow("  LLM: 未配置 API Key — 启发式离线模式"))
+        return
+    print(dim(f"  LLM: {cfg.provider} / {cfg.model} (重试≤{cfg.max_retries})"))
 
 
 def print_documents_full(result: dict) -> None:
@@ -419,13 +505,15 @@ def print_saved_state_summary(state: dict, metadata: dict) -> None:
 def _prompt_question() -> str:
     print(dim("选择场景后将自动运行完整 Agent 流水线\n"))
     print(bold("场景:"))
-    for key, label in SCENARIO_LABELS.items():
+    keys = list(SCENARIO_LABELS.keys())
+    for i, key in enumerate(keys, 1):
+        label = SCENARIO_LABELS[key]
         q = SCENARIO_QUESTIONS[key]
-        print(f"  {cyan(key)} — [{label}] {q[:40]}…")
+        print(f"  {cyan(str(i))}/{cyan(key)} — [{label}] {q[:36]}…")
     print(f"  {cyan('0')} — 自定义输入")
     print()
-    choice = input("请输入场景 (security/operations/general) 或编号 1-3: ").strip().lower()
-    key_map = {"1": "security", "2": "operations", "3": "general"}
+    choice = input("请输入场景 (security/operations/mixed/general) 或编号: ").strip().lower()
+    key_map = {str(i + 1): k for i, k in enumerate(keys)}
     if choice in key_map:
         return SCENARIO_QUESTIONS[key_map[choice]]
     if choice in SCENARIO_QUESTIONS:
@@ -461,11 +549,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("question", nargs="?", help="问题描述（直接输入即运行完整流程）")
     parser.add_argument("-i", "--interactive", action="store_true", help="交互式选择场景/问题")
-    parser.add_argument("--example", type=int, choices=[1, 2, 3], help="预设示例 1=等保 2=ITIL 3=通用")
+    parser.add_argument(
+        "--example",
+        type=int,
+        choices=list(range(1, len(EXAMPLE_QUESTIONS) + 1)),
+        help="预设示例 1=等保 2=ITIL 3=混合 4=通用",
+    )
     parser.add_argument(
         "--scenario",
         choices=list(SCENARIO_QUESTIONS),
-        help="场景: security=等保 | operations=ITIL | general=通用技术",
+        help="场景: security=等保 | operations=ITIL | mixed=混合 | general=通用",
     )
     parser.add_argument("--project-id", default="cli-demo", help="项目 ID")
     parser.add_argument("--protection-level", default="3", choices=["1", "2", "3", "4", "5"])
@@ -493,6 +586,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--inspect", action="store_true", help="仅查看 --load-state 内容，不执行流程")
     parser.add_argument("--list-states", action="store_true", help="列出 .forge_state/ 下已保存状态")
+    parser.add_argument(
+        "--save-result",
+        nargs="?",
+        const="auto",
+        metavar="PATH",
+        help="保存本次运行完整结果到 JSON（默认 .forge_state/runs/{project_id}_{run_id}.json）",
+    )
     parser.add_argument("--web", action="store_true", help="启动 FastAPI Web 服务")
     parser.add_argument(
         "--host",
@@ -508,7 +608,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _configure_stdio()
-    setup_logging("DEBUG" if args.verbose else "INFO", log_file=args.log_file)
+    load_dotenv()
+    settings = get_settings()
+    log_level = "DEBUG" if args.verbose else settings.log_level
+    setup_logging(log_level, log_file=args.log_file)
     logger = get_logger("main")
 
     if args.web:
@@ -574,11 +677,13 @@ def main(argv: list[str] | None = None) -> int:
     scenario_label = detect_scenario_label(question)
     print(dim(f"项目 ID: {args.project_id} | 等保级别: {args.protection_level}"))
     print(dim(f"场景: {scenario_label}"))
+    print_llm_status()
     if loaded_state:
         print(dim(f"恢复自: {state_path}"))
     print(dim(f"问题: {question}"))
     print(dim("运行中… Supervisor 编排 → 多 Agent 协作流水线\n"))
 
+    started = time.perf_counter()
     try:
         if loaded_state:
             # Merge project_id from CLI if resuming under same file
@@ -597,6 +702,7 @@ def main(argv: list[str] | None = None) -> int:
                 project_id=args.project_id,
                 protection_level=args.protection_level,
             )
+        result["_elapsed_ms"] = (time.perf_counter() - started) * 1000
     except KeyboardInterrupt:
         print(yellow("\n\n已取消"))
         return 130
@@ -605,8 +711,13 @@ def main(argv: list[str] | None = None) -> int:
         print(red(f"\n✗ 执行失败: {exc}"))
         if args.verbose:
             traceback.print_exc()
-        print(yellow("\n提示: 检查 .env 中的 DEEPSEEK_API_KEY，或使用 -v 查看详情"))
+        key_hint = "已配置" if get_api_key() else "未配置"
+        print(yellow(f"\n提示: LLM API Key {key_hint}，检查 .env 中 FORGE_LLM_PROVIDER / DEEPSEEK_API_KEY"))
+        print(yellow("      使用 -v 查看完整堆栈"))
         return 1
+
+    elapsed_ms = result.get("_elapsed_ms", 0)
+    print(dim(f"\n总耗时: {elapsed_ms / 1000:.2f}s\n"))
 
     print_result(result, question=question)
 
@@ -621,6 +732,21 @@ def main(argv: list[str] | None = None) -> int:
             metadata={"last_question": question, "scenario": scenario_label},
         )
         print(dim(f"\n状态已保存: {saved}"))
+
+    if args.save_result:
+        run_id = result.get("run_id") or "unknown"
+        if args.save_result == "auto":
+            out_json = default_run_result_path(run_id, args.project_id)
+        else:
+            out_json = args.save_result
+        saved_json = save_run_result(
+            result,
+            out_json,
+            question=question,
+            scenario=scenario_label,
+            elapsed_ms=elapsed_ms,
+        )
+        print(dim(f"运行结果 JSON: {saved_json}"))
 
     return 0
 

@@ -47,8 +47,8 @@ OPERATIONS_STRUCTURED_PROMPT = """基于以下问题与调研材料，输出 ITI
 严格输出 JSON，包含：
 - practice_area: incident | problem | change | knowledge | mixed
 - situation_summary
-- incident_guidance: {summary, priority, impact, response_steps} 或 null
+- incident_guidance: {{summary, priority, impact, response_steps}} 或 null
 - root_cause_analysis
-- change_recommendations: [{change_type, title, risk_level, approval_path, rollback_plan}]
+- change_recommendations: [{{change_type, title, risk_level, approval_path, rollback_plan}}]
 - knowledge_base_entries, sla_considerations
 - itil_rule_references, recommendations, next_actions"""

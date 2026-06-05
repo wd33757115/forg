@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import messages_to_dict
@@ -29,6 +31,7 @@ def build_api_response(
     *,
     question: str,
     scenario: str = "",
+    elapsed_ms: float | None = None,
 ) -> dict[str, Any]:
     """
     Build a JSON-safe response dict from a post-workflow ProjectState.
@@ -38,7 +41,7 @@ def build_api_response(
     """
     final = result.get("final_output") or {}
 
-    return {
+    payload: dict[str, Any] = {
         "success": len(result.get("agent_errors", [])) == 0,
         "run_id": result.get("run_id") or final.get("run_id"),
         "project_id": result.get("project_id"),
@@ -60,7 +63,38 @@ def build_api_response(
         "workflow_plan": result.get("workflow_plan") or final.get("workflow_plan"),
         "pipeline_trace": result.get("pipeline_trace") or final.get("pipeline_trace") or [],
         "agent_errors": result.get("agent_errors") or final.get("agent_errors") or [],
+        "degraded_agents": result.get("degraded_agents") or [],
         "conversation_history": result.get("conversation_history") or [],
         "messages": messages_to_dict(result.get("messages") or []),
         "final_output": final,
     }
+    if elapsed_ms is not None:
+        payload["elapsed_ms"] = round(elapsed_ms, 1)
+        payload["elapsed_seconds"] = round(elapsed_ms / 1000.0, 2)
+    return payload
+
+
+def save_run_result(
+    result: dict[str, Any],
+    path: str | Path,
+    *,
+    question: str,
+    scenario: str = "",
+    elapsed_ms: float | None = None,
+) -> Path:
+    """Persist full run result as UTF-8 JSON."""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_api_response(
+        result,
+        question=question,
+        scenario=scenario,
+        elapsed_ms=elapsed_ms,
+    )
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
+
+
+def default_run_result_path(run_id: str, project_id: str = "cli-demo") -> Path:
+    """Default path: .forge_state/runs/{project_id}_{run_id}.json"""
+    return Path(".forge_state") / "runs" / f"{project_id}_{run_id}.json"

@@ -48,7 +48,7 @@ SECURITY_STRUCTURED_PROMPT = """基于以下问题与调研材料，输出等保
 ## 输出要求
 严格输出 JSON，包含：
 - diagnosis, protection_level, risk_assessment, risk_level
-- security_risks: [{title, severity, description, remediation}]
-- remediation_items, configuration_advice: [{control_id, domain, title, recommendation, priority}]
+- security_risks: [{{title, severity, description, remediation}}]
+- remediation_items, configuration_advice: [{{control_id, domain, title, recommendation, priority}}]
 - assessment_materials: 测评材料清单
 - dengbao_rule_references, recommendations, next_actions"""

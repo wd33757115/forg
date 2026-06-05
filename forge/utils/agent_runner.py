@@ -15,6 +15,25 @@ from forge.utils.logger import get_logger
 # Agents whose failure should not abort the entire pipeline
 OPTIONAL_AGENTS = frozenset({"security", "operations", "document", "pm_advisor"})
 
+# Degraded empty payloads so downstream nodes can continue
+_DEGRADED_PAYLOADS: dict[str, dict[str, Any]] = {
+    "security": {"last_security_result": None, "degraded_agents": ["security"]},
+    "operations": {"last_operations_result": None, "degraded_agents": ["operations"]},
+    "document": {"generated_documents": [], "degraded_agents": ["document"]},
+    "pm_advisor": {"last_pm_advice": None, "degraded_agents": ["pm_advisor"]},
+    "problem_solver": {"last_solution": None, "degraded_agents": ["problem_solver"]},
+    "compliance": {
+        "last_compliance_result": {
+            "compliance_status": "partial",
+            "overall_status": "gaps_found",
+            "risk_level": "medium",
+            "missing_items": ["合规检查未完成（Agent 异常降级）"],
+            "recommendations": ["人工复核合规结果后重新运行 ComplianceAgent"],
+        },
+        "degraded_agents": ["compliance"],
+    },
+}
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -103,6 +122,17 @@ def wrap_agent_node(
                 if agent_name not in done:
                     done.append(agent_name)
                 recovery["specialists_completed"] = done
+
+            degraded = _DEGRADED_PAYLOADS.get(agent_name, {})
+            if degraded:
+                existing_degraded = list(state.get("degraded_agents", []))
+                for tag in degraded.get("degraded_agents", []):
+                    if tag not in existing_degraded:
+                        existing_degraded.append(tag)
+                recovery["degraded_agents"] = existing_degraded
+                for key, value in degraded.items():
+                    if key != "degraded_agents":
+                        recovery[key] = value
 
             recovery.update(
                 record_conversation(

@@ -47,6 +47,8 @@ class PipelinePlanner:
     """Build deterministic pipeline plans from user intent keywords."""
 
     def detect_scenario(self, content: str, *, is_security: bool, is_operations: bool, is_problem: bool) -> str:
+        if is_security and is_operations:
+            return "mixed"
         if is_security and is_problem:
             return "security"
         if is_operations and is_problem:

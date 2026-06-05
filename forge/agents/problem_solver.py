@@ -17,7 +17,7 @@ from forge.prompts.problem_solver_prompt import (
 )
 from forge.tools.problem_solver_tools import build_problem_solver_tools, run_tool_research
 from forge.utils.conversation import record_conversation
-from forge.utils.llm import get_llm
+from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
 from forge.utils.logger import get_logger
 
 logger = get_logger("problem_solver")
@@ -63,14 +63,19 @@ class ProblemSolverAgent(BaseAgent):
             enabled_modules=", ".join(state.get("enabled_modules", [])),
         )
 
-        result = react_agent.invoke(
-            {
-                "messages": [
-                    SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
-                    HumanMessage(content=task),
-                ]
-            }
-        )
+        try:
+            result = invoke_react_agent(
+                react_agent,
+                {
+                    "messages": [
+                        SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
+                        HumanMessage(content=task),
+                    ]
+                },
+            )
+        except Exception as exc:
+            logger.warning("ReAct phase failed, using tool research fallback: %s", exc)
+            return run_tool_research(state, problem_statement)
 
         final_messages = result.get("messages", [])
         if final_messages:
@@ -84,24 +89,20 @@ class ProblemSolverAgent(BaseAgent):
         research_context: str,
     ) -> SolutionOutput:
         """Produce validated SolutionOutput via LLM structured output or heuristic builder."""
-        llm = get_llm(temperature=0.1)
-        if llm is not None:
-            try:
-                structured_llm = llm.with_structured_output(SolutionOutput)
-                prompt = PROBLEM_SOLVER_STRUCTURED_PROMPT.format(
-                    problem_statement=problem_statement,
-                    research_context=research_context[:12000],
-                )
-                result = structured_llm.invoke(
-                    [
-                        SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
-                        HumanMessage(content=prompt),
-                    ]
-                )
-                if isinstance(result, SolutionOutput):
-                    return self._validate_solution_output(result)
-            except Exception:
-                pass  # fall through to heuristic
+        prompt = PROBLEM_SOLVER_STRUCTURED_PROMPT.format(
+            problem_statement=problem_statement,
+            research_context=escape_braces_for_format(research_context[:12000]),
+        )
+        result = invoke_structured_output(
+            SolutionOutput,
+            [
+                SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
+                HumanMessage(content=prompt),
+            ],
+            temperature=0.1,
+        )
+        if isinstance(result, SolutionOutput):
+            return self._validate_solution_output(result)
 
         return self._build_heuristic_solution(state, problem_statement, research_context)
 

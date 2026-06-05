@@ -17,7 +17,7 @@ from forge.prompts.operations_prompt import (
 )
 from forge.tools.operations_tools import build_operations_tools, run_operations_research
 from forge.utils.conversation import record_conversation
-from forge.utils.llm import get_llm
+from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
 from forge.utils.logger import get_logger
 
 logger = get_logger("operations")
@@ -76,14 +76,19 @@ class OperationsAgent(BaseAgent):
             project_id=state.get("project_id", ""),
             current_phase=state.get("current_phase", ""),
         )
-        result = react_agent.invoke(
-            {
-                "messages": [
-                    SystemMessage(content=OPERATIONS_SYSTEM),
-                    HumanMessage(content=task),
-                ]
-            }
-        )
+        try:
+            result = invoke_react_agent(
+                react_agent,
+                {
+                    "messages": [
+                        SystemMessage(content=OPERATIONS_SYSTEM),
+                        HumanMessage(content=task),
+                    ]
+                },
+            )
+        except Exception as exc:
+            logger.warning("Operations ReAct failed, heuristic fallback: %s", exc)
+            return run_operations_research(state, context)
         final_messages = result.get("messages", [])
         if final_messages:
             return str(getattr(final_messages[-1], "content", final_messages[-1]))
@@ -171,24 +176,20 @@ class OperationsAgent(BaseAgent):
         context: str,
         research_context: str,
     ) -> OperationsOutput:
-        llm = get_llm(temperature=0.1)
-        if llm is not None:
-            try:
-                structured_llm = llm.with_structured_output(OperationsOutput)
-                prompt = OPERATIONS_STRUCTURED_PROMPT.format(
-                    context=context,
-                    research_context=research_context[:12000],
-                )
-                result = structured_llm.invoke(
-                    [
-                        SystemMessage(content=OPERATIONS_SYSTEM),
-                        HumanMessage(content=prompt),
-                    ]
-                )
-                if isinstance(result, OperationsOutput):
-                    return result
-            except Exception:
-                pass
+        prompt = OPERATIONS_STRUCTURED_PROMPT.format(
+            context=context,
+            research_context=escape_braces_for_format(research_context[:12000]),
+        )
+        result = invoke_structured_output(
+            OperationsOutput,
+            [
+                SystemMessage(content=OPERATIONS_SYSTEM),
+                HumanMessage(content=prompt),
+            ],
+            temperature=0.1,
+        )
+        if isinstance(result, OperationsOutput):
+            return result
         return self._build_heuristic_output(state, context, research_context)
 
     def _format_response(self, output: OperationsOutput) -> str:

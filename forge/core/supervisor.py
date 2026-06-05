@@ -349,6 +349,30 @@ class Supervisor:
 
     def __call__(self, state: ProjectState) -> dict[str, Any]:
         """LangGraph supervisor node — handles initial routing and retry orchestration."""
+        try:
+            return self._run_supervisor(state)
+        except Exception as exc:
+            logger.exception("Supervisor routing failed: %s", exc)
+            return {
+                "next_agent": AgentName.END.value,
+                "agent_errors": list(state.get("agent_errors", []))
+                + [
+                    {
+                        "agent": "supervisor",
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    }
+                ],
+                "messages": [
+                    AIMessage(
+                        content=f"[Supervisor] 路由失败，流程终止: {exc}",
+                        name="supervisor",
+                    )
+                ],
+            }
+
+    def _run_supervisor(self, state: ProjectState) -> dict[str, Any]:
+        """Core supervisor logic (wrapped by __call__ for error recovery)."""
         step = state.get("workflow_step") or WorkflowStep.INITIAL
 
         if step == WorkflowStep.POST_COMPLIANCE:
@@ -633,6 +657,7 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     agent_errors = state.get("agent_errors", [])
     pipeline_trace = state.get("pipeline_trace", [])
     workflow_plan = state.get("workflow_plan") or {}
+    degraded_agents = state.get("degraded_agents", [])
 
     final_output = {
         "solution": solution,
@@ -648,6 +673,7 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "workflow_plan": workflow_plan,
         "pipeline_trace": pipeline_trace,
         "agent_errors": agent_errors,
+        "degraded_agents": degraded_agents,
         "run_id": state.get("run_id"),
     }
 

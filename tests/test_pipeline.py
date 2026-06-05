@@ -18,6 +18,18 @@ def test_pipeline_plan_problem_with_security():
     assert plan.scenario == "security"
 
 
+def test_pipeline_plan_mixed():
+    planner = PipelinePlanner()
+    plan = planner.build_for_problem_loop(
+        "等保401故障且核心交换机中断",
+        is_security=True,
+        is_operations=True,
+    )
+    assert plan.scenario == "mixed"
+    assert "security" in plan.stages
+    assert "operations" in plan.stages
+
+
 def test_pipeline_plan_operations():
     planner = PipelinePlanner()
     plan = planner.build_for_problem_loop(

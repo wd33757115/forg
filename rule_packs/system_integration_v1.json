@@ -1,15 +1,15 @@
 {
   "pack_id": "system_integration_v1",
   "name": "系统集成 Rule Pack v1",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "系统集成行业默认规则包：base_si + 等保2.0 + ITIL/ISO20000",
   "enabled_modules": ["base_si", "dengbao_2.0", "itil_iso20000"],
   "modules": {
     "base_si": {
       "module_id": "base_si",
       "name": "系统集成基础规范",
-      "version": "1.0.0",
-      "description": "系统集成项目通用规则：WBS、交付物、接口管理、变更控制",
+      "version": "1.1.0",
+      "description": "系统集成项目通用规则：WBS、交付物、接口管理、变更控制、里程碑",
       "rules": [
         {
           "id": "si-wbs-001",
@@ -17,23 +17,80 @@
           "description": "项目必须定义完整的WBS，覆盖需求、设计、实施、测试、验收各阶段",
           "category": "project_management",
           "severity": "high",
-          "checks": [
-            "wbs:requirements",
-            "wbs:design",
-            "wbs:implementation",
-            "wbs:testing",
-            "wbs:acceptance"
-          ],
+          "checks": ["wbs:requirements", "wbs:design", "wbs:implementation", "wbs:testing", "wbs:acceptance"],
           "references": ["PMBOK WBS", "系统集成项目管理规范"]
+        },
+        {
+          "id": "si-ms-001",
+          "title": "项目启动里程碑",
+          "description": "完成项目章程、干系人登记、范围说明书与 kick-off 会议纪要",
+          "category": "milestone",
+          "severity": "high",
+          "checks": ["milestone:启动", "document:项目章程", "document:干系人登记"],
+          "references": ["PMBOK 启动过程组"]
+        },
+        {
+          "id": "si-ms-002",
+          "title": "设计评审里程碑",
+          "description": "完成概要设计、详细设计评审并签署设计基线",
+          "category": "milestone",
+          "severity": "high",
+          "checks": ["milestone:设计评审", "document:概要设计", "document:详细设计"],
+          "references": ["系统集成设计规范"]
+        },
+        {
+          "id": "si-ms-003",
+          "title": "集成测试里程碑",
+          "description": "完成 SIT 并出具缺陷闭环报告，达到上线准入标准",
+          "category": "milestone",
+          "severity": "high",
+          "checks": ["milestone:SIT", "document:集成测试报告", "wbs:testing"],
+          "references": ["系统集成测试规范"]
+        },
+        {
+          "id": "si-ms-004",
+          "title": "验收与移交里程碑",
+          "description": "完成 UAT、初验/终验及运维移交签字",
+          "category": "milestone",
+          "severity": "critical",
+          "checks": ["milestone:验收", "document:验收报告", "document:移交"],
+          "references": ["项目验收管理办法"]
         },
         {
           "id": "si-doc-001",
           "title": "核心交付文档",
-          "description": "必须存在经审批的技术方案与验收报告",
+          "description": "必须存在经审批的技术方案、实施计划与验收报告",
           "category": "documentation",
           "severity": "high",
-          "checks": ["document:技术方案", "document:验收"],
+          "checks": ["document:技术方案", "document:实施计划", "document:验收"],
           "references": ["系统集成文档规范"]
+        },
+        {
+          "id": "si-doc-002",
+          "title": "需求与变更文档",
+          "description": "需求规格说明书、需求跟踪矩阵及变更记录齐全",
+          "category": "documentation",
+          "severity": "high",
+          "checks": ["document:需求规格", "document:需求跟踪矩阵", "document:变更"],
+          "references": ["需求管理规范"]
+        },
+        {
+          "id": "si-doc-003",
+          "title": "测试文档包",
+          "description": "测试计划、测试用例、测试报告与缺陷清单完整",
+          "category": "documentation",
+          "severity": "high",
+          "checks": ["document:测试计划", "document:测试用例", "document:测试报告"],
+          "references": ["软件测试文档规范"]
+        },
+        {
+          "id": "si-doc-004",
+          "title": "培训与运维文档",
+          "description": "用户手册、运维手册、应急预案与培训记录",
+          "category": "documentation",
+          "severity": "medium",
+          "checks": ["document:用户手册", "document:运维手册", "document:应急预案"],
+          "references": ["运维移交 checklist"]
         },
         {
           "id": "si-int-001",
@@ -41,7 +98,7 @@
           "description": "所有外部系统接口必须有接口设计文档和联调记录",
           "category": "integration",
           "severity": "medium",
-          "checks": ["document:接口"],
+          "checks": ["document:接口设计", "document:联调记录"],
           "references": ["接口管理最佳实践"]
         },
         {
@@ -50,7 +107,7 @@
           "description": "重大变更必须经过变更评审并留存记录",
           "category": "change_management",
           "severity": "high",
-          "checks": ["document:变更"],
+          "checks": ["document:变更申请", "document:变更评审"],
           "references": ["变更管理流程"]
         },
         {
@@ -68,7 +125,7 @@
           "description": "集成方案须包含身份认证、传输加密、日志审计等安全设计",
           "category": "security",
           "severity": "high",
-          "checks": ["document:安全", "document:等保"],
+          "checks": ["document:安全设计", "document:等保"],
           "references": ["系统集成安全规范"]
         },
         {
@@ -77,7 +134,7 @@
           "description": "项目验收前须完成运维文档移交和知识转移",
           "category": "operations",
           "severity": "medium",
-          "checks": ["document:运维", "document:移交"],
+          "checks": ["document:运维", "document:移交", "document:知识转移"],
           "references": ["运维移交 checklist"]
         }
       ]
@@ -85,25 +142,34 @@
     "dengbao_2.0": {
       "module_id": "dengbao_2.0",
       "name": "网络安全等级保护 2.0",
-      "version": "1.0.0",
-      "description": "等保2.0核心控制项 — 技术与管理要求",
+      "version": "1.1.0",
+      "description": "等保2.0核心控制项 — 主机、网络、应用、数据、安全管理",
       "rules": [
         {
           "id": "db-acs-001",
           "title": "身份鉴别",
-          "description": "应对登录用户进行身份标识和鉴别，身份标识具有唯一性",
+          "description": "应对登录用户进行身份标识和鉴别，身份标识具有唯一性，鉴别信息复杂度满足策略",
           "category": "access_control",
           "severity": "critical",
-          "checks": ["document:身份鉴别", "document:访问控制"],
+          "checks": ["document:身份鉴别", "document:访问控制", "config:密码策略"],
           "references": ["GB/T 22239-2019 8.1.4.1"]
+        },
+        {
+          "id": "db-acs-002",
+          "title": "访问控制",
+          "description": "应授予管理用户所需最小权限，实现权限分离，默认拒绝访问",
+          "category": "access_control",
+          "severity": "critical",
+          "checks": ["document:访问控制矩阵", "config:RBAC"],
+          "references": ["GB/T 22239-2019 8.1.4.2"]
         },
         {
           "id": "db-aud-001",
           "title": "安全审计",
-          "description": "应启用安全审计功能，审计覆盖到每个用户",
+          "description": "应启用安全审计功能，审计覆盖到每个用户，审计记录包含日期、时间、用户、事件类型与结果",
           "category": "audit",
           "severity": "high",
-          "checks": ["document:安全审计", "document:日志"],
+          "checks": ["document:安全审计", "document:日志", "log:审计留存"],
           "references": ["GB/T 22239-2019 8.1.4.3"]
         },
         {
@@ -112,124 +178,286 @@
           "description": "应保证跨越边界的访问和数据流通过边界设备提供的受控接口进行通信",
           "category": "network",
           "severity": "critical",
-          "checks": ["document:边界", "document:防火墙"],
+          "checks": ["document:边界防护", "document:防火墙策略"],
           "references": ["GB/T 22239-2019 8.1.2.1"]
         },
         {
-          "id": "db-mgt-001",
-          "title": "安全管理制度",
-          "description": "应建立网络安全工作的总体方针和安全策略",
-          "category": "management",
+          "id": "db-net-002",
+          "title": "入侵防范",
+          "description": "应在关键网络节点处检测、防止或限制从外部发起的网络攻击行为",
+          "category": "network",
           "severity": "high",
-          "checks": ["document:安全管理制度", "document:等保"],
+          "checks": ["document:入侵检测", "config:IDS/IPS"],
+          "references": ["GB/T 22239-2019 8.1.2.2"]
+        },
+        {
+          "id": "db-net-003",
+          "title": "恶意代码防范（网络）",
+          "description": "应在网络边界处对恶意代码进行检测和清除",
+          "category": "network",
+          "severity": "high",
+          "checks": ["document:网关防病毒", "config:恶意代码防护"],
+          "references": ["GB/T 22239-2019 8.1.2.3"]
+        },
+        {
+          "id": "db-net-004",
+          "title": "通信传输保密性",
+          "description": "应采用密码技术保证通信过程中数据的保密性",
+          "category": "network",
+          "severity": "high",
+          "checks": ["document:TLS配置", "config:传输加密"],
+          "references": ["GB/T 22239-2019 8.1.2.4"]
+        },
+        {
+          "id": "db-hst-001",
+          "title": "恶意代码防范（主机）",
+          "description": "应安装防恶意代码软件并及时更新，支持统一管理",
+          "category": "host_security",
+          "severity": "high",
+          "checks": ["document:防病毒", "config:终端防护"],
+          "references": ["GB/T 22239-2019 8.1.4.4"]
+        },
+        {
+          "id": "db-hst-002",
+          "title": "资源控制",
+          "description": "应限制单个用户或进程对系统资源的最大使用限度，防止资源耗尽",
+          "category": "host_security",
+          "severity": "medium",
+          "checks": ["config:资源配额", "document:容量规划"],
+          "references": ["GB/T 22239-2019 8.1.4.5 a)"]
+        },
+        {
+          "id": "db-hst-003",
+          "title": "漏洞与补丁管理",
+          "description": "应建立漏洞扫描与补丁更新机制，高危漏洞及时修复",
+          "category": "host_security",
+          "severity": "high",
+          "checks": ["document:漏洞扫描报告", "document:补丁记录"],
+          "references": ["GB/T 22239-2019 8.1.4.5 b)"]
+        },
+        {
+          "id": "db-app-001",
+          "title": "应用身份鉴别",
+          "description": "应用系统应实现用户身份鉴别，支持失败处理与会话超时",
+          "category": "application",
+          "severity": "critical",
+          "checks": ["document:应用认证", "config:会话超时"],
           "references": ["GB/T 22239-2019 8.2.1.1"]
+        },
+        {
+          "id": "db-app-002",
+          "title": "应用访问控制",
+          "description": "应用应实现基于角色或属性的访问控制，敏感操作二次确认",
+          "category": "application",
+          "severity": "high",
+          "checks": ["document:应用权限", "config:敏感操作审计"],
+          "references": ["GB/T 22239-2019 8.2.1.2"]
+        },
+        {
+          "id": "db-app-003",
+          "title": "应用安全审计",
+          "description": "应用应记录用户登录、业务操作、配置变更等安全相关事件",
+          "category": "application",
+          "severity": "high",
+          "checks": ["document:应用审计日志", "log:业务操作审计"],
+          "references": ["GB/T 22239-2019 8.2.1.3"]
         },
         {
           "id": "db-dat-001",
           "title": "数据备份与恢复",
-          "description": "应提供重要数据的本地数据备份与恢复功能",
+          "description": "应提供重要数据的本地数据备份与恢复功能，定期演练恢复",
           "category": "data_security",
           "severity": "high",
-          "checks": ["document:备份", "document:恢复"],
+          "checks": ["document:备份策略", "document:恢复演练"],
           "references": ["GB/T 22239-2019 8.1.4.6"]
         },
         {
-          "id": "db-mal-001",
-          "title": "恶意代码防范",
-          "description": "应安装防恶意代码软件，并及时更新",
-          "category": "host_security",
-          "severity": "high",
-          "checks": ["document:防病毒", "document:恶意代码"],
-          "references": ["GB/T 22239-2019 8.1.4.4"]
-        },
-        {
-          "id": "db-cry-001",
+          "id": "db-dat-002",
           "title": "数据加密",
           "description": "应采用密码技术保证重要数据在传输和存储过程中的保密性",
           "category": "data_security",
           "severity": "critical",
-          "checks": ["document:加密", "document:TLS"],
+          "checks": ["document:加密方案", "config:存储加密"],
           "references": ["GB/T 22239-2019 8.1.4.5 c)"]
+        },
+        {
+          "id": "db-dat-003",
+          "title": "数据完整性",
+          "description": "应采用校验技术或密码技术保证重要数据在传输和存储过程中的完整性",
+          "category": "data_security",
+          "severity": "high",
+          "checks": ["document:完整性保护", "config:数字签名"],
+          "references": ["GB/T 22239-2019 8.1.4.5 d)"]
+        },
+        {
+          "id": "db-mgt-001",
+          "title": "安全管理制度",
+          "description": "应建立网络安全工作的总体方针和安全策略，并发布安全管理制度",
+          "category": "management",
+          "severity": "high",
+          "checks": ["document:安全管理制度", "document:安全策略"],
+          "references": ["GB/T 22239-2019 8.2.1.1"]
+        },
+        {
+          "id": "db-mgt-002",
+          "title": "安全管理机构与人员",
+          "description": "应设立安全管理岗位，配备专职或兼职安全管理员，定期开展安全意识培训",
+          "category": "management",
+          "severity": "medium",
+          "checks": ["document:安全组织架构", "document:安全培训记录"],
+          "references": ["GB/T 22239-2019 8.2.2"]
+        },
+        {
+          "id": "db-mgt-003",
+          "title": "安全建设与运维",
+          "description": "应建立安全建设、日常运维、应急响应与变更管理制度",
+          "category": "management",
+          "severity": "high",
+          "checks": ["document:运维制度", "document:应急预案"],
+          "references": ["GB/T 22239-2019 8.2.3"]
+        },
+        {
+          "id": "db-mgt-004",
+          "title": "网络安全事件处置",
+          "description": "应制定网络安全事件应急预案，定期开展应急演练并留存记录",
+          "category": "management",
+          "severity": "high",
+          "checks": ["document:事件应急预案", "document:应急演练记录"],
+          "references": ["GB/T 22239-2019 8.2.4"]
         }
       ]
     },
     "itil_iso20000": {
       "module_id": "itil_iso20000",
       "name": "ITIL 4 + ISO/IEC 20000",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "IT服务管理最佳实践与ISO20000核心要求",
       "rules": [
         {
           "id": "itil-inc-001",
           "title": "事件管理",
-          "description": "所有服务中断或质量下降必须记录为事件并按优先级处理",
+          "description": "所有服务中断或质量下降必须记录为事件，按优先级分类并在 SLA 内响应与恢复",
           "category": "incident",
           "severity": "high",
-          "checks": ["document:事件", "document:incident"],
+          "checks": ["document:事件单", "document:incident", "process:事件分级"],
           "references": ["ITIL 4 Incident Management", "ISO/IEC 20000-1 8.6"]
+        },
+        {
+          "id": "itil-inc-002",
+          "title": "重大事件升级",
+          "description": "P1/P2 事件须按升级矩阵通知服务负责人与客户，并记录沟通时间线",
+          "category": "incident",
+          "severity": "critical",
+          "checks": ["document:升级记录", "process:重大事件流程"],
+          "references": ["ITIL 4 Incident Management"]
         },
         {
           "id": "itil-prb-001",
           "title": "问题管理",
-          "description": "反复发生的事件必须启动问题管理流程进行根因分析",
+          "description": "反复发生或具有潜在根因的事件必须启动问题管理流程进行根因分析",
           "category": "problem",
           "severity": "medium",
-          "checks": ["document:问题", "document:根因"],
+          "checks": ["document:问题单", "document:根因分析"],
           "references": ["ITIL 4 Problem Management", "ISO/IEC 20000-1 8.7"]
+        },
+        {
+          "id": "itil-prb-002",
+          "title": "已知错误管理",
+          "description": "已识别根因但暂无永久修复的问题应登记为已知错误并发布临时规避措施",
+          "category": "problem",
+          "severity": "medium",
+          "checks": ["document:已知错误", "document:临时规避"],
+          "references": ["ITIL 4 Problem Management"]
         },
         {
           "id": "itil-chg-001",
           "title": "变更管理",
-          "description": "所有变更必须经过评估、授权和实施控制",
+          "description": "所有变更必须经过评估、授权和实施控制，紧急变更事后补办审批",
           "category": "change",
           "severity": "high",
-          "checks": ["document:变更"],
+          "checks": ["document:变更申请", "document:RFC"],
           "references": ["ITIL 4 Change Enablement", "ISO/IEC 20000-1 8.5"]
+        },
+        {
+          "id": "itil-chg-002",
+          "title": "CAB 变更评审",
+          "description": "标准/正常/紧急变更应通过 CAB 或预授权流程评审风险与回退计划",
+          "category": "change",
+          "severity": "high",
+          "checks": ["document:CAB纪要", "document:回退计划"],
+          "references": ["ITIL 4 Change Enablement"]
         },
         {
           "id": "itil-cfg-001",
           "title": "配置管理",
-          "description": "服务资产和配置项必须被识别、记录和控制",
+          "description": "服务资产和配置项（CI）必须被识别、记录、关联并在 CMDB 中受控",
           "category": "configuration",
           "severity": "medium",
-          "checks": ["document:配置", "document:CMDB"],
+          "checks": ["document:配置基线", "document:CMDB"],
           "references": ["ITIL 4 Service Configuration Management"]
         },
         {
           "id": "itil-slm-001",
           "title": "服务级别管理",
-          "description": "必须定义、协商和监控服务级别协议(SLA)",
+          "description": "必须定义、协商和监控 SLA/OLA/UC，定期评审服务绩效",
           "category": "service_level",
           "severity": "medium",
-          "checks": ["document:SLA", "document:服务级别"],
+          "checks": ["document:SLA", "document:服务级别评审"],
           "references": ["ITIL 4 Service Level Management", "ISO/IEC 20000-1 8.3"]
         },
         {
           "id": "itil-rel-001",
           "title": "发布管理",
-          "description": "软件/配置发布必须经过测试验证和发布审批",
+          "description": "软件/配置发布必须经过测试验证、发布审批与回退验证",
           "category": "release",
           "severity": "medium",
-          "checks": ["document:发布", "document:release"],
+          "checks": ["document:发布计划", "document:发布记录"],
           "references": ["ITIL 4 Release Management"]
         },
         {
           "id": "itil-ava-001",
           "title": "可用性管理",
-          "description": "应定义服务可用性目标并持续监控",
+          "description": "应定义服务可用性目标（如 99.9%）并持续监控与报告",
           "category": "availability",
           "severity": "medium",
-          "checks": ["document:可用性", "document:availability"],
+          "checks": ["document:可用性目标", "document:可用性报告"],
           "references": ["ITIL 4 Availability Management"]
+        },
+        {
+          "id": "itil-cap-001",
+          "title": "容量与性能管理",
+          "description": "应监控容量趋势，在性能瓶颈影响 SLA 前采取扩容或优化措施",
+          "category": "capacity",
+          "severity": "medium",
+          "checks": ["document:容量规划", "document:性能基线"],
+          "references": ["ITIL 4 Capacity and Performance Management"]
         },
         {
           "id": "itil-km-001",
           "title": "知识管理",
-          "description": "事件/问题解决方案应沉淀到知识库",
+          "description": "事件/问题解决方案应沉淀到知识库，支持服务台检索复用",
           "category": "knowledge",
           "severity": "low",
-          "checks": ["document:知识库"],
+          "checks": ["document:知识库", "process:知识审核"],
           "references": ["ITIL 4 Knowledge Management"]
+        },
+        {
+          "id": "itil-sdm-001",
+          "title": "服务台",
+          "description": "应设立统一服务台入口，记录所有服务请求与事件并分派处理",
+          "category": "service_desk",
+          "severity": "medium",
+          "checks": ["document:服务台流程", "process:工单分派"],
+          "references": ["ITIL 4 Service Desk", "ISO/IEC 20000-1 8.6"]
+        },
+        {
+          "id": "itil-con-001",
+          "title": "持续改进",
+          "description": "应定期召开服务评审会议，基于 KPI 与 CSF 制定改进计划",
+          "category": "continual_improvement",
+          "severity": "low",
+          "checks": ["document:服务评审", "document:改进计划"],
+          "references": ["ITIL 4 Continual Improvement", "ISO/IEC 20000-1 10"]
         }
       ]
     }
