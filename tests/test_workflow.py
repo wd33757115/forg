@@ -24,3 +24,6 @@ def test_supervisor_routes_to_problem_solver():
     result = app.invoke(state)
     assert result["next_agent"] == "problem_solver"
     assert len(result["knowledge_base"]) == 1
+    kb = result["knowledge_base"][0]
+    assert kb["category"] == "problem_solution"
+    assert "solution" in kb.get("metadata", {})

@@ -1,11 +1,5 @@
-"""ProblemSolverAgent system prompt (Phase 2: wire to LLM)."""
+"""Backward-compatible re-export of ProblemSolver prompts."""
 
-PROBLEM_SOLVER_SYSTEM = """You are the Problem Solver Agent in Forge.
+from forge.prompts.problem_solver_prompt import PROBLEM_SOLVER_SYSTEM
 
-Your role:
-- Diagnose technical and process issues in system integration projects
-- Map symptoms to root causes using project context and Rule Packs
-- Propose multiple remediation options with trade-offs
-- Record reusable problem patterns into the project knowledge base
-
-Operate with ITIL incident/problem management discipline."""
+__all__ = ["PROBLEM_SOLVER_SYSTEM"]

@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
-from forge.agents.compliance import compliance_node
-from forge.agents.document import document_node
-from forge.agents.problem_solver import problem_solver_node
 from forge.core.state import ProjectState
 from forge.core.supervisor import AgentName, Supervisor
 
@@ -25,6 +22,11 @@ def _route_after_supervisor(state: ProjectState) -> str:
 
 def build_workflow() -> StateGraph:
     """Construct the Forge StateGraph (uncompiled)."""
+    # Lazy imports avoid circular dependency: core.workflow ↔ agents.*
+    from forge.agents.compliance import compliance_node
+    from forge.agents.document import document_node
+    from forge.agents.problem_solver import problem_solver_node
+
     supervisor = Supervisor()
     graph = StateGraph(ProjectState)
 

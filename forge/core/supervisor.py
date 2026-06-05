@@ -85,10 +85,24 @@ class Supervisor:
                     next_agent=AgentName.COMPLIANCE,
                     reason="Message indicates compliance-related intent",
                 )
-            if any(kw in content for kw in ("问题", "故障", "problem", "incident", "根因")):
+            problem_keywords = (
+                "问题",
+                "故障",
+                "problem",
+                "incident",
+                "根因",
+                "异常",
+                "报错",
+                "error",
+                "失败",
+                "宕机",
+                "超时",
+                "诊断",
+            )
+            if any(kw in content for kw in problem_keywords):
                 return SupervisorDecision(
                     next_agent=AgentName.PROBLEM_SOLVER,
-                    reason="Message indicates problem-solving intent",
+                    reason="Message indicates problem-solving / incident intent",
                 )
 
         return SupervisorDecision(
