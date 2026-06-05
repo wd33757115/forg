@@ -1,4 +1,4 @@
-"""Multi-standard compliance scanning tools."""
+"""Legacy compliance scan wrapper — delegates to compliance_tools."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from forge.core.rule_pack import RuleModule
 from forge.core.state import ProjectState
+from forge.tools.compliance_tools import build_compliance_output_from_checks, run_all_compliance_checks
 
 
 class ComplianceScanResult(BaseModel):
@@ -20,43 +21,13 @@ def run_compliance_scan(state: ProjectState, packs: dict[str, RuleModule]) -> Co
     """
     Scan project state against enabled Rule Packs.
 
-    Phase 1 uses lightweight heuristics. Phase 2 will map evidence artifacts
-    to specific rule clauses and compute coverage scores.
+    Delegates to compliance_tools; kept for backward compatibility.
     """
-    findings: list[str] = []
-    documents = state.get("documents", [])
-    wbs = state.get("wbs", {})
-    doc_titles = {d.get("title", "").lower() for d in documents}
-
-    for module_id, pack in packs.items():
-        for rule in pack.rules:
-            gap = _check_rule(rule.id, rule.checks, doc_titles, wbs)
-            if gap:
-                findings.append(f"[{module_id}/{rule.id}] {rule.title}: {gap}")
-
-    status = "pass" if not findings else "gaps_found"
+    _ = packs  # modules resolved from state.enabled_modules
+    raw = run_all_compliance_checks(state)
+    payload = build_compliance_output_from_checks(raw)
     return ComplianceScanResult(
-        overall_status=status,
-        findings=findings,
+        overall_status=payload["overall_status"],
+        findings=payload["missing_items"],
         checked_at=datetime.now(timezone.utc).isoformat(),
     )
-
-
-def _check_rule(
-    rule_id: str,
-    checks: list[str],
-    doc_titles: set[str],
-    wbs: dict,
-) -> str | None:
-    """Return gap description if a rule check fails, else None."""
-    for check in checks:
-        check_lower = check.lower()
-        if check_lower.startswith("document:"):
-            required = check_lower.replace("document:", "").strip()
-            if not any(required in t for t in doc_titles):
-                return f"Missing document containing '{required}'"
-        if check_lower.startswith("wbs:"):
-            required = check_lower.replace("wbs:", "").strip()
-            if required not in wbs:
-                return f"WBS item '{required}' not defined"
-    return None

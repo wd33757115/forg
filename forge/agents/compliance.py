@@ -1,68 +1,270 @@
-"""ComplianceAgent — multi-standard compliance checks (等保2.0 + ITIL/ISO20000)."""
+"""ComplianceAgent — multi-standard compliance checking with structured output."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.prebuilt import create_react_agent
+
 from forge.agents.base import BaseAgent
-from forge.core.rule_pack_loader import get_rule_pack
+from forge.agents.compliance_output import (
+    CheckItem,
+    ComplianceOutput,
+    ModuleComplianceResult,
+)
+from forge.agents.solution_output import SolutionOutput
 from forge.core.state import ComplianceResult, ProjectState
-from forge.prompts.compliance import COMPLIANCE_SYSTEM
-from forge.tools.compliance_checker import run_compliance_scan
-from forge.utils.llm import invoke_llm
+from forge.prompts.compliance_prompt import (
+    COMPLIANCE_REACT_TASK,
+    COMPLIANCE_STRUCTURED_PROMPT,
+    COMPLIANCE_SYSTEM,
+)
+from forge.tools.compliance_tools import (
+    build_compliance_output_from_checks,
+    build_compliance_tools,
+    run_all_compliance_checks,
+    run_compliance_research,
+)
+from forge.utils.llm import get_llm
 
 
 class ComplianceAgent(BaseAgent):
     """
-    Phase 1 stub: scans enabled Rule Packs against project artifacts.
+    Forge multi-standard compliance agent.
 
-    Phase 2 will add evidence mapping, gap reports, and remediation plans.
+    Architecture (mirrors ProblemSolverAgent):
+    1. **ReAct phase** — LLM + compliance tools investigate project evidence
+    2. **Structured output** — Pydantic `ComplianceOutput`
+    3. **Heuristic fallback** — deterministic checks when no API key
+
+    Callable by ProblemSolverAgent via `validate_solution()` after方案生成.
     """
 
     name = "compliance"
 
-    def run(self, state: ProjectState) -> dict[str, Any]:
-        modules = tuple(state.get("enabled_modules", []))
-        packs = get_rule_pack(modules)
-        scan = run_compliance_scan(state, packs)
+    def _extract_context(self, state: ProjectState) -> str:
+        messages = state.get("messages", [])
+        for msg in reversed(messages):
+            if getattr(msg, "type", "") == "human" or msg.__class__.__name__ == "HumanMessage":
+                return str(getattr(msg, "content", msg))
+        return "全项目合规扫描"
 
+    def _get_protection_level(self, state: ProjectState) -> str:
+        rule_pack = state.get("rule_pack") or {}
+        return str(rule_pack.get("protection_level", "3"))
+
+    def _run_react(self, state: ProjectState, context: str) -> str:
+        """Run LangGraph ReAct agent with compliance tools."""
+        llm = get_llm(temperature=0.1)
+        if llm is None:
+            return run_compliance_research(state, context)
+
+        tools = build_compliance_tools(state)
+        react_agent = create_react_agent(llm, tools)
+
+        task = COMPLIANCE_REACT_TASK.format(
+            context=context,
+            project_id=state.get("project_id", ""),
+            current_phase=state.get("current_phase", ""),
+            enabled_modules=", ".join(state.get("enabled_modules", [])),
+            protection_level=self._get_protection_level(state),
+        )
+
+        result = react_agent.invoke(
+            {
+                "messages": [
+                    SystemMessage(content=COMPLIANCE_SYSTEM),
+                    HumanMessage(content=task),
+                ]
+            }
+        )
+        final_messages = result.get("messages", [])
+        if final_messages:
+            return str(getattr(final_messages[-1], "content", final_messages[-1]))
+        return run_compliance_research(state, context)
+
+    def _build_heuristic_output(
+        self,
+        state: ProjectState,
+        context: str = "",
+        *,
+        modules: list[str] | None = None,
+    ) -> ComplianceOutput:
+        """Build ComplianceOutput from deterministic tool checks."""
+        raw = run_all_compliance_checks(state, modules=modules)
+        payload = build_compliance_output_from_checks(raw, context=context)
+
+        results = [
+            ModuleComplianceResult(
+                module=mod["module"],
+                module_name=mod.get("module_name", ""),
+                status=mod["status"],
+                score=mod["score"],
+                items=[CheckItem(**item) for item in mod.get("items", [])],
+                summary=mod.get("summary", ""),
+            )
+            for mod in payload["results"]
+        ]
+
+        return ComplianceOutput(
+            overall_status=payload["overall_status"],
+            risk_level=payload["risk_level"],
+            protection_level=payload.get("protection_level"),
+            results=results,
+            missing_items=payload["missing_items"],
+            recommendations=payload["recommendations"],
+            next_action=payload["next_action"],
+        )
+
+    def _synthesize_structured(
+        self,
+        state: ProjectState,
+        context: str,
+        research_context: str,
+    ) -> ComplianceOutput:
+        """Produce ComplianceOutput via LLM structured output or heuristic builder."""
+        llm = get_llm(temperature=0.05)
+        if llm is not None:
+            try:
+                structured_llm = llm.with_structured_output(ComplianceOutput)
+                prompt = COMPLIANCE_STRUCTURED_PROMPT.format(
+                    research_context=research_context[:12000],
+                )
+                result = structured_llm.invoke(
+                    [
+                        SystemMessage(content=COMPLIANCE_SYSTEM),
+                        HumanMessage(content=f"检查上下文: {context}\n\n{prompt}"),
+                    ]
+                )
+                if isinstance(result, ComplianceOutput):
+                    return result
+            except Exception:
+                pass
+        return self._build_heuristic_output(state, context)
+
+    def _format_response(self, output: ComplianceOutput) -> str:
+        lines = [
+            "## 合规总览",
+            f"- **状态**: {output.overall_status}",
+            f"- **风险等级**: {output.risk_level}",
+            f"- **等保级别**: {output.protection_level or 'N/A'}",
+            "",
+            "## 模块检查结果",
+        ]
+        for mod in output.results:
+            lines.append(f"### {mod.module_name} ({mod.module})")
+            lines.append(f"状态: {mod.status} | 得分: {mod.score}")
+            lines.append(mod.summary)
+            for item in mod.items:
+                icon = {"pass": "✓", "fail": "✗", "warning": "!"}.get(item.status, "?")
+                lines.append(f"  {icon} [{item.check_id}] {item.title}: {item.detail}")
+            lines.append("")
+
+        if output.missing_items:
+            lines.extend(["## 缺失项", *[f"- {m}" for m in output.missing_items], ""])
+        if output.recommendations:
+            lines.extend(["## 整改建议", *[f"- {r}" for r in output.recommendations], ""])
+        lines.extend(["## 下一步行动", output.next_action, ""])
+        lines.extend(["## 结构化输出 (JSON)", f"```json\n{output.to_display_json()}\n```"])
+        return "\n".join(lines)
+
+    def _persist_results(
+        self,
+        state: ProjectState,
+        output: ComplianceOutput,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build compliance_history record and compliance_results entry."""
         pack_meta = state.get("rule_pack") or {}
-        result = ComplianceResult(
+        checked_at = datetime.now(timezone.utc).isoformat()
+        findings = output.missing_items
+
+        legacy = ComplianceResult(
             id=f"cmp-{state['project_id']}-{len(state.get('compliance_results', []))}",
             pack_id=pack_meta.get("pack_id", "unknown"),
-            modules=list(modules),
-            status=scan.overall_status,
-            findings=scan.findings,
-            checked_at=scan.checked_at,
+            modules=[r.module for r in output.results],
+            status=output.overall_status,
+            findings=findings,
+            checked_at=checked_at,
+            metadata={
+                "risk_level": output.risk_level,
+                "protection_level": output.protection_level,
+            },
         )
         record = {
-            "id": result.id,
-            "standard": ",".join(modules),
-            "rule_id": "batch_scan",
-            "status": result.status,
-            "findings": result.findings,
-            "checked_at": result.checked_at,
+            "id": legacy.id,
+            "standard": ",".join(legacy.modules),
+            "rule_id": "multi_standard_scan",
+            "status": legacy.status,
+            "findings": legacy.findings,
+            "checked_at": checked_at,
         }
+        structured = {
+            **output.model_dump(),
+            "id": legacy.id,
+            "checked_at": checked_at,
+        }
+        return record, structured
 
-        findings_text = "\n".join(f"- {f}" for f in scan.findings) if scan.findings else "- None"
-        heuristic_body = (
-            f"**Scan status**: {scan.overall_status}\n\n"
-            f"**Findings** ({len(scan.findings)}):\n{findings_text}"
+    def run_compliance(
+        self,
+        state: ProjectState,
+        *,
+        context: str | None = None,
+        modules: list[str] | None = None,
+        skip_react: bool = False,
+    ) -> ComplianceOutput:
+        """
+        Core compliance pipeline — used by `run()` and `validate_solution()`.
+
+        Args:
+            state: Current project state
+            context: Human-readable check context
+            modules: Optional subset of modules to check
+            skip_react: If True, skip LLM ReAct and use deterministic checks only
+        """
+        ctx = context or self._extract_context(state)
+
+        if skip_react:
+            research = run_compliance_research(state, ctx)
+            return self._build_heuristic_output(state, ctx, modules=modules)
+
+        research = self._run_react(state, ctx)
+        return self._synthesize_structured(state, ctx, research)
+
+    def validate_solution(
+        self,
+        state: ProjectState,
+        solution: SolutionOutput,
+    ) -> ComplianceOutput:
+        """
+        Validate a ProblemSolver solution against compliance requirements.
+
+        Called by ProblemSolverAgent after generating a recommended solution.
+        Uses solution metadata as check context; runs deterministic checks for speed.
+        """
+        recommended = next(
+            (s for s in solution.solutions if s.id == solution.recommended_solution_id),
+            solution.solutions[0] if solution.solutions else None,
         )
-        llm_body = invoke_llm(
-            COMPLIANCE_SYSTEM,
-            f"Project phase: {state.get('current_phase')}\n"
-            f"Enabled modules: {state.get('enabled_modules')}\n"
-            f"Compliance scan results:\n{heuristic_body}\n\n"
-            "Provide a concise remediation plan citing relevant standards.",
+        rec_title = recommended.title if recommended else "N/A"
+        context = (
+            f"ProblemSolver 方案合规校验 | 推荐方案: {solution.recommended_solution_id} ({rec_title}) | "
+            f"{solution.problem_analysis[:300]}"
         )
-        body = llm_body if llm_body else heuristic_body
+        # Enrich check: solution compliance_impact text counts as soft evidence
+        return self.run_compliance(state, context=context, skip_react=True)
+
+    def run(self, state: ProjectState) -> dict[str, Any]:
+        """LangGraph node entrypoint — full compliance scan."""
+        output = self.run_compliance(state)
+        record, structured = self._persist_results(state, output)
 
         return {
-            **self.reply(f"{COMPLIANCE_SYSTEM}\n\n{body}"),
+            **self.reply(self._format_response(output)),
             "compliance_history": state.get("compliance_history", []) + [record],
-            "compliance_results": state.get("compliance_results", [])
-            + [result.model_dump()],
+            "compliance_results": state.get("compliance_results", []) + [structured],
             "pending_tasks": [
                 t
                 for t in state.get("pending_tasks", [])

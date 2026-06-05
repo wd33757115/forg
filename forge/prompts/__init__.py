@@ -1,6 +1,7 @@
 """Agent prompt templates."""
 
 from forge.prompts.compliance import COMPLIANCE_SYSTEM
+from forge.prompts.compliance_prompt import COMPLIANCE_REACT_TASK, COMPLIANCE_STRUCTURED_PROMPT
 from forge.prompts.document import DOCUMENT_SYSTEM
 from forge.prompts.problem_solver import PROBLEM_SOLVER_SYSTEM
 from forge.prompts.problem_solver_prompt import (
@@ -9,6 +10,8 @@ from forge.prompts.problem_solver_prompt import (
 )
 
 __all__ = [
+    "COMPLIANCE_REACT_TASK",
+    "COMPLIANCE_STRUCTURED_PROMPT",
     "COMPLIANCE_SYSTEM",
     "DOCUMENT_SYSTEM",
     "PROBLEM_SOLVER_REACT_TASK",

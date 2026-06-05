@@ -80,10 +80,24 @@ class Supervisor:
                     next_agent=AgentName.DOCUMENT,
                     reason="Message indicates document generation intent",
                 )
-            if any(kw in content for kw in ("等保", "合规", "compliance", "audit")):
+            compliance_keywords = (
+                "等保",
+                "合规",
+                "compliance",
+                "audit",
+                "测评",
+                "整改",
+                "缺口",
+                "gap",
+                "扫描",
+                "检查",
+                "审计",
+                "dengbao",
+            )
+            if any(kw in content for kw in compliance_keywords):
                 return SupervisorDecision(
                     next_agent=AgentName.COMPLIANCE,
-                    reason="Message indicates compliance-related intent",
+                    reason="Message indicates compliance / audit intent",
                 )
             problem_keywords = (
                 "问题",

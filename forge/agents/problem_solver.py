@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from forge.agents.base import BaseAgent
+from forge.agents.compliance import ComplianceAgent
 from forge.agents.solution_output import SolutionOption, SolutionOutput
 from forge.core.state import ProjectState
 from forge.prompts.problem_solver_prompt import (
@@ -323,6 +324,9 @@ class ProblemSolverAgent(BaseAgent):
         # Phase 2: Structured output synthesis
         solution = self._synthesize_structured(state, problem_statement, research_context)
 
+        # Post-solution compliance validation via ComplianceAgent
+        compliance_validation = ComplianceAgent().validate_solution(state, solution)
+
         knowledge_entry = {
             "id": f"kb-{state['project_id']}-ps-{len(state.get('knowledge_base', []))}",
             "category": "problem_solution",
@@ -332,11 +336,24 @@ class ProblemSolverAgent(BaseAgent):
             "metadata": {
                 "solution": solution.model_dump(),
                 "recommended_solution_id": solution.recommended_solution_id,
+                "compliance_validation": compliance_validation.model_dump(),
             },
         }
 
+        response_body = self._format_response(solution)
+        response_body += (
+            "\n\n---\n\n## 方案合规校验 (ComplianceAgent)\n"
+            f"- **状态**: {compliance_validation.overall_status}\n"
+            f"- **风险**: {compliance_validation.risk_level}\n"
+            f"- **下一步**: {compliance_validation.next_action}\n"
+        )
+        if compliance_validation.missing_items:
+            response_body += "\n**合规缺口**:\n" + "\n".join(
+                f"- {m}" for m in compliance_validation.missing_items[:5]
+            )
+
         return {
-            **self.reply(self._format_response(solution)),
+            **self.reply(response_body),
             "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
             "pending_tasks": [
                 t
