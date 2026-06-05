@@ -14,7 +14,9 @@
 | **PMAdvisorAgent** | 项目经理视角总结、风险与行动项 |
 | **Supervisor** | 智能路由、思考链路记录、Agent 协作编排 |
 | **Rule Pack** | 等保 20 条 + ITIL 14 条 + 系统集成里程碑/文档清单 |
-| **CLI Demo** | Rich 美化输出、`--type` / `--save` / `--load`、满意度反馈 |
+| **CLI Demo** | Rich 美化输出、`--type` / `--save` / `--load`、`--check-mode` / `--report`、满意度反馈 |
+| **ToolRegistry** | 6 Agent 工具集统一注册（problem_solver … pm_advisor） |
+| **Knowledge** | `utils/knowledge.py` 标签检索，ProblemSolver 注入 `prior_cases` |
 | **配置** | `forge/config.py` + `.env` 多厂商 LLM |
 | **Web API** | FastAPI `POST /solve`（雏形） |
 
@@ -35,7 +37,9 @@
 copy .env.example .env
 # 编辑 DEEPSEEK_API_KEY（可选，无 Key 使用启发式模式）
 
-.\.venv\Scripts\python.exe -m pytest tests/ -q
+.\.venv\Scripts\python.exe -m pytest tests/ -q --ignore=tests/test_full_pipeline.py -k "not test_run_forge_cli_helper"
+# 含端到端闭环（较慢）:
+.\.venv\Scripts\python.exe -m pytest tests/test_full_pipeline.py -q
 ```
 
 ## CLI 用法
@@ -59,6 +63,12 @@ copy .env.example .env
 
 # 跳过满意度评分（CI/脚本）
 .\run.bat --type general --no-feedback
+
+# 合规严格度 + 运行报告
+.\run.bat --type security --check-mode strict --report --no-feedback
+
+# --type / --scenario 默认预置演示证据（文档+WBS+Rule Pack 关键词索引）
+# 裸问题不加预置：.\run.bat "自定义问题"  或显式 --no-demo-seed
 ```
 
 运行结束后（交互式终端）会提示 **1-5 分满意度**，写入 `knowledge_base` 供后续 Agent 参考。
@@ -70,7 +80,11 @@ make setup
 make test
 make demo-security
 make demo-itil
+make demo-mixed
+make test-llm   # 需配置 API Key；验证引用率 ≥70%
 ```
+
+CI 默认跑离线测试（`-m "not llm"`）；LLM 验收可在 GitHub Actions 手动触发 `workflow_dispatch` 并配置 `DEEPSEEK_API_KEY`。
 
 ## 配置（.env）
 
@@ -82,16 +96,34 @@ FORGE_LLM_MAX_RETRIES=3
 
 支持 `deepseek` | `openai` | `aliyun` | `volcengine`，详见 `.env.example`。
 
+## 架构（net-ops 风格）
+
+```
+Supervisor
+  └── PipelineOrchestrator   # 问题分类 + 专家队列编排
+        └── ProblemSolver → (Security|Operations)* → Compliance → Document → PMAdvisor
+
+BaseAgent (core/base_agent.py)
+  ├── run(state)             # 统一入口
+  ├── get_tools()            # ToolRegistry
+  └── run_react / invoke_structured  # utils/llm.py
+
+ToolRegistry (core/tool_registry.py)
+  └── 6 Agent 工具集（problem_solver, compliance, security, operations, document, pm_advisor）
+
+详细架构与 v1.0 范围见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)。
+```
+
 ## 项目结构
 
 ```
 forge/
-  agents/          # 各 Agent 实现 + Pydantic 输出模型
-  cli/             # Rich CLI 展示
+  agents/          # 各 Agent 实现（继承 BaseAgent）+ Pydantic 输出模型
+  cli/             # parser、scenarios、runner、Rich/ANSI 展示
   config.py        # pydantic-settings 配置
-  core/            # Supervisor、State、Workflow、Rule Pack
+  core/            # BaseAgent、ToolRegistry、Orchestrator、Supervisor、State
   prompts/         # Agent 提示词
-  tools/           # Agent 工具
+  tools/           # 工具实现（经 ToolRegistry 挂载）
   utils/           # LLM、agent_context、conversation
 rule_packs/        # 行业规则 JSON
 tests/

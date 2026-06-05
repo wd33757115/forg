@@ -352,17 +352,54 @@ def build_problem_solver_tools(state: ProjectState) -> list[BaseTool]:
     ]
 
 
-def run_tool_research(state: ProjectState, problem_statement: str) -> str:
+def run_tool_research(
+    state: ProjectState,
+    problem_statement: str,
+    *,
+    problem_type: str | None = None,
+) -> str:
     """
-    Execute all tools programmatically (used for heuristic mode and as ReAct context).
+    Execute tools programmatically (heuristic / ReAct fallback).
+
+    When ``problem_type`` is set, prioritizes relevant Rule Pack modules and
+    ITIL/等保 lookups (security → dengbao, service_management → itil, etc.).
     """
-    sections = [
+    from forge.agents.problem_classifier import ProblemType, classify_problem, modules_for_problem_type
+
+    hint = problem_type or state.get("problem_type") or state.get("problem_type_hint")
+    resolved_type: ProblemType
+    type_reason: str
+    if problem_type:
+        resolved_type = problem_type  # type: ignore[assignment]
+        type_reason = "explicit"
+    else:
+        resolved_type, type_reason = classify_problem(problem_statement, hint=hint)
+
+    level = str((state.get("rule_pack") or {}).get("protection_level", "3"))
+    modules = modules_for_problem_type(resolved_type)
+
+    sections: list[tuple[str, str]] = [
         ("project_state", _tool_get_current_project_state(state)),
-        ("rule_pack", _tool_query_rule_pack(state, "", "", "")),
-        ("dengbao_l3", _tool_get_dengbao_requirements(state, "3")),
-        ("itil_incident", _tool_get_itil_guidance(state, "incident")),
-        ("itil_problem", _tool_get_itil_guidance(state, "problem")),
+        ("problem_type", f"{resolved_type} — {type_reason}"),
         ("impact", _tool_analyze_impact(state, problem_statement)),
         ("historical_cases", _tool_search_historical_cases(state, problem_statement)),
     ]
+
+    for mod in modules:
+        sections.append((f"rule_pack_{mod}", _tool_query_rule_pack(state, mod, "", "")))
+
+    if resolved_type in ("security", "mixed") or "dengbao" in modules:
+        sections.append((f"dengbao_l{level}", _tool_get_dengbao_requirements(state, level)))
+
+    if resolved_type in ("service_management", "mixed"):
+        for practice in ("incident", "problem", "change"):
+            sections.append(
+                (f"itil_{practice}", _tool_get_itil_guidance(state, practice)),
+            )
+    elif resolved_type == "technical":
+        sections.append(("itil_incident", _tool_get_itil_guidance(state, "incident")))
+
+    if not any(n.startswith("rule_pack_") for n, _ in sections):
+        sections.insert(1, ("rule_pack_all", _tool_query_rule_pack(state, "", "", "")))
+
     return "\n\n".join(f"### {name}\n{content}" for name, content in sections)

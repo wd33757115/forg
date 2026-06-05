@@ -15,6 +15,7 @@ class CheckItem(BaseModel):
     category: str
     status: str = Field(description="pass | fail | warning")
     detail: str = ""
+    rule_id: str = Field(default="", description="Canonical Rule Pack rule id (db-*, itil-*, si-*)")
     rule_reference: str = ""
 
 

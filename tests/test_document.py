@@ -37,9 +37,11 @@ def test_generate_document_bundle():
     }
 
     bundle = generate_document_bundle("doc-test", "implementation", solution, compliance)
-    assert len(bundle.documents) == 5
+    assert len(bundle.documents) == 7
     types = {d.doc_type for d in bundle.documents}
+    assert "solution_summary" in types
     assert "remediation_plan" in types
+    assert "remediation_record" in types
     assert "dengbao_record" in types
     assert "itil_incident" in types
     assert "change_request" in types
@@ -64,7 +66,7 @@ def test_document_agent_run():
     }
 
     result = DocumentAgent().run(state)
-    assert len(result["generated_documents"]) == 5
+    assert len(result["generated_documents"]) == 7
     assert result["generated_documents"][0]["format"] == "markdown"
 
 

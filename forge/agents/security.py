@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
 
-from forge.agents.base import BaseAgent
+from forge.core.base_agent import BaseAgent
 from forge.agents.security_output import SecurityControlAdvice, SecurityOutput, SecurityRiskItem
 from forge.core.state import ProjectState, WORKFLOW_PROBLEM_COMPLIANCE_LOOP
 from forge.prompts.security_prompt import (
@@ -15,12 +14,9 @@ from forge.prompts.security_prompt import (
     SECURITY_STRUCTURED_PROMPT,
     SECURITY_SYSTEM,
 )
-from forge.tools.security_tools import build_security_tools, run_security_research
+from forge.tools.security_tools import run_security_research
 from forge.utils.conversation import record_conversation
-from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
-from forge.utils.logger import get_logger
-
-logger = get_logger("security")
+from forge.utils.llm import escape_braces_for_format
 
 
 def _mark_specialist_done(state: ProjectState, specialist: str) -> list[str]:
@@ -35,7 +31,7 @@ class SecurityAgent(BaseAgent):
     Forge 等保2.0 security specialist.
 
     Architecture:
-    1. ReAct + dengbao_2.0 tools
+    1. ReAct + dengbao_2.0 tools (via ToolRegistry)
     2. Structured SecurityOutput
     3. Heuristic fallback without API key
     """
@@ -57,35 +53,19 @@ class SecurityAgent(BaseAgent):
         return str(rule_pack.get("protection_level", "3"))
 
     def _run_react(self, state: ProjectState, context: str) -> str:
-        llm = get_llm(temperature=0.15)
-        if llm is None:
-            return run_security_research(state, context)
-
-        tools = build_security_tools(state)
-        react_agent = create_react_agent(llm, tools)
         task = SECURITY_REACT_TASK.format(
             context=context[:2000],
             project_id=state.get("project_id", ""),
             protection_level=self._get_protection_level(state),
             current_phase=state.get("current_phase", ""),
         )
-        try:
-            result = invoke_react_agent(
-                react_agent,
-                {
-                    "messages": [
-                        SystemMessage(content=SECURITY_SYSTEM),
-                        HumanMessage(content=task),
-                    ]
-                },
-            )
-        except Exception as exc:
-            logger.warning("Security ReAct failed, heuristic fallback: %s", exc)
-            return run_security_research(state, context)
-        final_messages = result.get("messages", [])
-        if final_messages:
-            return str(getattr(final_messages[-1], "content", final_messages[-1]))
-        return run_security_research(state, context)
+        return self.run_react(
+            state,
+            system=SECURITY_SYSTEM,
+            task=task,
+            temperature=0.15,
+            fallback=run_security_research(state, context),
+        )
 
     def _build_heuristic_output(
         self,
@@ -198,7 +178,7 @@ class SecurityAgent(BaseAgent):
             context=context,
             research_context=escape_braces_for_format(research_context[:12000]),
         )
-        result = invoke_structured_output(
+        result = self.invoke_structured(
             SecurityOutput,
             [
                 SystemMessage(content=SECURITY_SYSTEM),
@@ -252,7 +232,7 @@ class SecurityAgent(BaseAgent):
             "metadata": {"security_output": output_dict},
         }
 
-        logger.info("Security advisory | level=%s risk=%s", output.protection_level, output.risk_level)
+        self.logger.info("Security advisory | level=%s risk=%s", output.protection_level, output.risk_level)
 
         updates: dict[str, Any] = {
             **self.reply(self._format_response(output) + suffix),

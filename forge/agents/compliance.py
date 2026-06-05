@@ -6,9 +6,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
 
-from forge.agents.base import BaseAgent
+from forge.core.base_agent import BaseAgent
 from forge.agents.compliance_output import (
     CheckItem,
     ComplianceOutput,
@@ -16,7 +15,6 @@ from forge.agents.compliance_output import (
 )
 from forge.agents.solution_output import SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ComplianceResult, ProjectState
-from forge.agents.solution_output import SolutionOutput
 from forge.prompts.compliance_prompt import (
     COMPLIANCE_REACT_TASK,
     COMPLIANCE_STRUCTURED_PROMPT,
@@ -24,16 +22,13 @@ from forge.prompts.compliance_prompt import (
 )
 from forge.tools.compliance_tools import (
     build_compliance_output_from_checks,
-    build_compliance_tools,
     run_all_compliance_checks,
     run_compliance_research,
 )
 from forge.utils.agent_context import get_handoff_payload
+from forge.utils.check_mode import apply_check_mode_to_compliance_status, resolve_check_mode
 from forge.utils.conversation import record_conversation, record_thinking
-from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
-from forge.utils.logger import get_logger
-
-logger = get_logger("compliance")
+from forge.utils.llm import escape_braces_for_format
 
 
 class ComplianceAgent(BaseAgent):
@@ -62,14 +57,7 @@ class ComplianceAgent(BaseAgent):
         return str(rule_pack.get("protection_level", "3"))
 
     def _run_react(self, state: ProjectState, context: str) -> str:
-        """Run LangGraph ReAct agent with compliance tools."""
-        llm = get_llm(temperature=0.1)
-        if llm is None:
-            return run_compliance_research(state, context)
-
-        tools = build_compliance_tools(state)
-        react_agent = create_react_agent(llm, tools)
-
+        """Run ReAct via BaseAgent + ToolRegistry compliance tools."""
         task = COMPLIANCE_REACT_TASK.format(
             context=context,
             project_id=state.get("project_id", ""),
@@ -77,24 +65,13 @@ class ComplianceAgent(BaseAgent):
             enabled_modules=", ".join(state.get("enabled_modules", [])),
             protection_level=self._get_protection_level(state),
         )
-
-        try:
-            result = invoke_react_agent(
-                react_agent,
-                {
-                    "messages": [
-                        SystemMessage(content=COMPLIANCE_SYSTEM),
-                        HumanMessage(content=task),
-                    ]
-                },
-            )
-        except Exception as exc:
-            logger.warning("Compliance ReAct failed, heuristic fallback: %s", exc)
-            return run_compliance_research(state, context)
-        final_messages = result.get("messages", [])
-        if final_messages:
-            return str(getattr(final_messages[-1], "content", final_messages[-1]))
-        return run_compliance_research(state, context)
+        return self.run_react(
+            state,
+            system=COMPLIANCE_SYSTEM,
+            task=task,
+            temperature=0.1,
+            fallback=run_compliance_research(state, context),
+        )
 
     def _build_heuristic_output(
         self,
@@ -105,7 +82,11 @@ class ComplianceAgent(BaseAgent):
     ) -> ComplianceOutput:
         """Build ComplianceOutput from deterministic tool checks."""
         raw = run_all_compliance_checks(state, modules=modules)
-        payload = build_compliance_output_from_checks(raw, context=context)
+        payload = build_compliance_output_from_checks(
+            raw,
+            context=context,
+            check_mode=resolve_check_mode(state),
+        )
 
         results = [
             ModuleComplianceResult(
@@ -139,7 +120,7 @@ class ComplianceAgent(BaseAgent):
         prompt = COMPLIANCE_STRUCTURED_PROMPT.format(
             research_context=escape_braces_for_format(research_context[:12000]),
         )
-        result = invoke_structured_output(
+        result = self.invoke_structured(
             ComplianceOutput,
             [
                 SystemMessage(content=COMPLIANCE_SYSTEM),
@@ -207,12 +188,16 @@ class ComplianceAgent(BaseAgent):
             "findings": legacy.findings,
             "checked_at": checked_at,
         }
-        compliance_status = self._derive_compliance_status(output)
+        check_mode = resolve_check_mode(state)
+        base_status = self._derive_compliance_status(output)
+        compliance_status = apply_check_mode_to_compliance_status(base_status, check_mode)
         structured = {
             **output.model_dump(),
             "id": legacy.id,
             "checked_at": checked_at,
             "compliance_status": compliance_status,
+            "check_mode": check_mode,
+            "base_compliance_status": base_status,
         }
         return record, structured
 
@@ -286,7 +271,7 @@ class ComplianceAgent(BaseAgent):
                 refs = ", ".join(
                     r.get("rule_id", "") for r in handoff["rule_pack_references"][:5]
                 )
-                logger.info("Compliance received handoff | refs=%s", refs)
+                self.logger.info("Compliance received handoff | refs=%s", refs)
             output = self.validate_solution(state, solution)
         else:
             output = self.run_compliance(state)
@@ -304,7 +289,7 @@ class ComplianceAgent(BaseAgent):
         else:
             body = self._format_response(output)
 
-        logger.info(
+        self.logger.info(
             "Compliance check | status=%s risk=%s gaps=%d",
             status_label,
             output.risk_level,

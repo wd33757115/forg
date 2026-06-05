@@ -9,6 +9,7 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["deepseek", "openai", "aliyun", "volcengine"]
+ComplianceCheckMode = Literal["strict", "advisory", "lenient"]
 
 
 def _load_dotenv_safe() -> None:
@@ -56,6 +57,12 @@ class ForgeSettings(BaseSettings):
 
     # Optional custom OpenAI-compatible endpoint
     openai_base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
+
+    # Compliance default (overridable per session via ProjectState.check_mode)
+    compliance_check_mode: ComplianceCheckMode = Field(
+        default="advisory",
+        validation_alias=AliasChoices("FORGE_COMPLIANCE_CHECK_MODE", "COMPLIANCE_CHECK_MODE"),
+    )
 
     # Logging / web
     log_level: str = Field(default="INFO", validation_alias="FORGE_LOG_LEVEL")

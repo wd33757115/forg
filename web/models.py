@@ -16,9 +16,21 @@ class SolveRequest(BaseModel):
         default="3",
         description="等保保护级别",
     )
-    scenario: Literal["security", "operations", "general", "auto"] = Field(
+    scenario: Literal["security", "itil", "mixed", "general", "auto"] = Field(
         default="auto",
         description="场景提示；auto 时根据问题关键词自动路由",
+    )
+    problem_type_hint: str | None = Field(
+        default=None,
+        description="问题类型提示：security | itil | mixed | general",
+    )
+    check_mode: Literal["strict", "advisory", "lenient"] | None = Field(
+        default=None,
+        description="合规检查严格度，默认 advisory",
+    )
+    demo_seed: bool = Field(
+        default=True,
+        description="为空白项目预置演示文档/WBS，便于产出资料",
     )
 
 

@@ -1,6 +1,4 @@
-"""OperationsAgent prompt re-exports."""
-
-from forge.prompts.operations_prompt import (
+from forge.prompts.operations.prompts import (
     OPERATIONS_REACT_TASK,
     OPERATIONS_STRUCTURED_PROMPT,
     OPERATIONS_SYSTEM,

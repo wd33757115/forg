@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from forge.agents.base import BaseAgent
+from forge.core.base_agent import BaseAgent
 from forge.agents.document_output import DocumentOutput
 from forge.core.state import ProjectState
 from forge.prompts.document_prompt import DOCUMENT_SYSTEM

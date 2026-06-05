@@ -72,18 +72,30 @@ BASE_SI_CHECKS: dict[str, dict[str, Any]] = {
         "title": "资料完整性",
         "document_keywords": ["技术方案", "验收", "方案"],
         "wbs_required": [],
+        "rule_ids": ["si-doc-001"],
     },
     "wbs_completeness": {
         "title": "WBS 完整性",
         "document_keywords": [],
         "wbs_required": ["requirements", "design", "implementation", "testing", "acceptance"],
+        "rule_ids": ["si-wbs-001"],
     },
     "implementation_standards": {
         "title": "实施规范符合度",
         "document_keywords": ["接口", "变更", "联调"],
         "wbs_required": ["implementation"],
+        "rule_ids": ["si-int-001"],
     },
 }
+
+
+def _primary_rule_id(*, rule_ids: list[str], check_id: str) -> str:
+    """Pick canonical rule_id for a compliance check item."""
+    if rule_ids:
+        return rule_ids[0]
+    if check_id.startswith(("db-", "itil-", "si-")):
+        return check_id
+    return ""
 
 
 class DengbaoCheckInput(BaseModel):
@@ -147,6 +159,7 @@ def check_base_compliance(state: ProjectState) -> dict[str, Any]:
                 missing.append(f"WBS 缺失: {wbs_item}")
 
         status = "pass" if doc_ok and wbs_ok else "fail"
+        rule_ids = spec.get("rule_ids", [])
         items.append(
             {
                 "check_id": f"base_si-{check_id}",
@@ -154,7 +167,8 @@ def check_base_compliance(state: ProjectState) -> dict[str, Any]:
                 "category": "base_si",
                 "status": status,
                 "detail": "符合要求" if status == "pass" else "; ".join(missing),
-                "rule_reference": "base_si Rule Pack",
+                "rule_id": _primary_rule_id(rule_ids=rule_ids, check_id=f"base_si-{check_id}"),
+                "rule_reference": ", ".join(rule_ids) or "base_si Rule Pack",
             }
         )
 
@@ -174,6 +188,7 @@ def check_base_compliance(state: ProjectState) -> dict[str, Any]:
                                 "category": rule.category,
                                 "status": "fail",
                                 "detail": f"Rule Pack 缺口: 缺少含 '{kw}' 的文档",
+                                "rule_id": rule.id,
                                 "rule_reference": ", ".join(rule.references),
                             }
                         )
@@ -214,6 +229,7 @@ def check_dengbao_compliance(
                     "category": "dengbao_2.0",
                     "status": "pass",
                     "detail": f"保护级别 {level} 不要求此项",
+                    "rule_id": _primary_rule_id(rule_ids=spec.get("rule_ids", []), check_id=f"db-{check_id}"),
                     "rule_reference": "N/A",
                 }
             )
@@ -233,6 +249,7 @@ def check_dengbao_compliance(
                 "category": "dengbao_2.0",
                 "status": status,
                 "detail": detail,
+                "rule_id": _primary_rule_id(rule_ids=spec["rule_ids"], check_id=f"db-{check_id}"),
                 "rule_reference": ", ".join(spec["rule_ids"]),
             }
         )
@@ -254,6 +271,7 @@ def check_dengbao_compliance(
                                     "category": rule.category,
                                     "status": "fail",
                                     "detail": f"管理等保{level}级要求: 缺少 '{kw}' 文档",
+                                    "rule_id": rule.id,
                                     "rule_reference": ", ".join(rule.references),
                                 }
                             )
@@ -293,6 +311,7 @@ def check_itil_compliance(state: ProjectState) -> dict[str, Any]:
                     if has_evidence
                     else f"缺少 {spec['title']} 流程记录或文档"
                 ),
+                "rule_id": _primary_rule_id(rule_ids=spec["rule_ids"], check_id=f"itil-{check_id}"),
                 "rule_reference": ", ".join(spec["rule_ids"]),
             }
         )
@@ -312,6 +331,7 @@ def check_itil_compliance(state: ProjectState) -> dict[str, Any]:
                                     "title": rule.title,
                                     "category": rule.category,
                                     "status": "warning",
+                                    "rule_id": rule.id,
                                     "detail": f"建议补充 SLA 文档: '{kw}'",
                                     "rule_reference": ", ".join(rule.references),
                                 }
@@ -359,25 +379,35 @@ def build_compliance_output_from_checks(
     raw: dict[str, Any],
     *,
     context: str = "",
+    check_mode: str = "advisory",
 ) -> dict[str, Any]:
     """Assemble ComplianceOutput-compatible dict from raw check results."""
+    from forge.utils.check_mode import compute_compliance_verdict
+
     module_results = list(raw.get("modules", {}).values())
     missing: list[str] = []
     recommendations: list[str] = []
 
     for mod in module_results:
         for item in mod.get("items", []):
-            if item["status"] == "fail":
+            if item["status"] in ("fail", "warning"):
                 missing.append(f"[{mod['module']}] {item['title']}: {item['detail']}")
-                recommendations.append(
-                    f"整改 {item['title']} — 参考 {item.get('rule_reference', 'Rule Pack')}"
-                )
+                if item["status"] == "fail":
+                    recommendations.append(
+                        f"整改 {item['title']} — 参考 {item.get('rule_reference', 'Rule Pack')}"
+                    )
 
     fail_total = sum(
         1
         for mod in module_results
         for item in mod.get("items", [])
         if item["status"] == "fail"
+    )
+    warn_total = sum(
+        1
+        for mod in module_results
+        for item in mod.get("items", [])
+        if item["status"] == "warning"
     )
     critical_fails = sum(
         1
@@ -386,16 +416,13 @@ def build_compliance_output_from_checks(
         if item["status"] == "fail" and "dengbao" in item.get("category", "")
     )
 
-    if critical_fails >= 2 or fail_total >= 6:
-        overall_status, risk_level = "critical", "critical"
-        compliance_status = "non_compliant"
-    elif fail_total > 0:
-        overall_status, risk_level = "gaps_found", "high" if fail_total >= 3 else "medium"
-        # partial: gaps exist but risk is manageable — eligible for document generation
-        compliance_status = "partial" if risk_level in ("low", "medium") else "non_compliant"
-    else:
-        overall_status, risk_level = "pass", "low"
-        compliance_status = "compliant"
+    mode = check_mode if check_mode in ("strict", "advisory", "lenient") else "advisory"
+    overall_status, risk_level, compliance_status = compute_compliance_verdict(
+        fail_total=fail_total,
+        warn_total=warn_total,
+        critical_fails=critical_fails,
+        check_mode=mode,  # type: ignore[arg-type]
+    )
 
     if context and "方案" in context:
         recommendations.append("对 ProblemSolver 推荐方案进行变更影响评估后再实施")

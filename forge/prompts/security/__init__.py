@@ -1,6 +1,4 @@
-"""SecurityAgent prompt re-exports."""
-
-from forge.prompts.security_prompt import (
+from forge.prompts.security.prompts import (
     SECURITY_REACT_TASK,
     SECURITY_STRUCTURED_PROMPT,
     SECURITY_SYSTEM,

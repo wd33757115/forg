@@ -5,7 +5,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from langchain_core.tools import BaseTool, tool
+
 from forge.agents.document_output import DocumentOutput, GeneratedDocument
+from forge.core.state import ProjectState
+
+DOCUMENT_TEMPLATE_TYPES = (
+    "solution_summary",
+    "remediation_plan",
+    "remediation_record",
+    "dengbao_record",
+    "itil_incident",
+    "itil_problem",
+    "change_request",
+)
 
 
 def _now_str() -> str:
@@ -18,6 +31,96 @@ def _solution_rec(solution: dict[str, Any]) -> dict[str, Any]:
         if sol.get("id") == rec_id:
             return sol
     return solution.get("solutions", [{}])[0] if solution.get("solutions") else {}
+
+
+def generate_solution_summary(
+    project_id: str,
+    phase: str,
+    solution: dict[str, Any],
+    compliance: dict[str, Any],
+) -> GeneratedDocument:
+    """Executive summary for PM / stakeholder briefing."""
+    rec = _solution_rec(solution)
+    refs = solution.get("rule_pack_references", [])
+    ref_lines = [
+        f"- {r.get('rule_id', r)}" if isinstance(r, dict) else f"- {r}"
+        for r in refs[:8]
+    ]
+    content = f"""# 方案摘要
+
+| 字段 | 内容 |
+|------|------|
+| 项目 ID | {project_id} |
+| 阶段 | {phase} |
+| 推荐方案 | {solution.get('recommended_solution_id', 'N/A')} — {rec.get('title', '')} |
+| 问题类型 | {solution.get('problem_type', '—')} |
+| 合规状态 | {compliance.get('compliance_status', 'unknown')} |
+| 编制时间 | {_now_str()} |
+
+## 问题概述
+
+{solution.get('problem_analysis', '无')[:800]}
+
+## 推荐方案要点
+
+{rec.get('approach', rec.get('description', ''))[:600]}
+
+## Rule Pack 引用
+
+{chr(10).join(ref_lines) or '- 待补充'}
+
+## 下一步行动
+
+{chr(10).join(f'- {a}' for a in solution.get('next_actions', [])[:6]) or '- 待补充'}
+"""
+    return GeneratedDocument(
+        doc_id=f"doc-{project_id}-summary",
+        doc_type="solution_summary",
+        title="方案摘要",
+        content=content,
+        metadata={"solution_id": solution.get("recommended_solution_id")},
+    )
+
+
+def generate_remediation_record(
+    project_id: str,
+    solution: dict[str, Any],
+    compliance: dict[str, Any],
+) -> GeneratedDocument:
+    """Compliance remediation tracking record."""
+    missing = compliance.get("missing_items", [])
+    recs = compliance.get("recommendations", [])
+    content = f"""# 整改记录
+
+| 字段 | 内容 |
+|------|------|
+| 项目 ID | {project_id} |
+| 方案 ID | {solution.get('recommended_solution_id', 'N/A')} |
+| 合规状态 | {compliance.get('compliance_status', 'unknown')} |
+| 检查模式 | {compliance.get('check_mode', 'advisory')} |
+| 记录时间 | {_now_str()} |
+
+## 缺口清单
+
+{chr(10).join(f'- {m}' for m in missing) or '- 无记录缺口'}
+
+## 整改措施
+
+{chr(10).join(f'- {r}' for r in recs) or '- 按 Rule Pack 逐项落实'}
+
+## 跟踪表
+
+| 缺口项 | 责任人 | 计划完成 | 状态 |
+|--------|--------|----------|------|
+| （待填写） | | |  open |
+"""
+    return GeneratedDocument(
+        doc_id=f"doc-{project_id}-remediation-record",
+        doc_type="remediation_record",
+        title="整改记录",
+        content=content,
+        metadata={"compliance_status": compliance.get("compliance_status")},
+    )
 
 
 def generate_remediation_plan(
@@ -331,7 +434,9 @@ def generate_document_bundle(
         return DocumentOutput(summary="无方案数据，跳过资料生成")
 
     docs = [
+        generate_solution_summary(project_id, phase, solution, compliance),
         generate_remediation_plan(project_id, phase, solution, compliance),
+        generate_remediation_record(project_id, solution, compliance),
         generate_dengbao_record(project_id, solution, compliance),
         generate_itil_incident_record(project_id, solution, compliance),
         generate_itil_problem_record(project_id, solution),
@@ -340,6 +445,45 @@ def generate_document_bundle(
 
     return DocumentOutput(
         documents=docs,
-        summary=f"已生成 {len(docs)} 份资料：整改方案、等保记录、ITIL 事件/问题、变更申请",
+        summary=(
+            f"已生成 {len(docs)} 份资料：方案摘要、整改方案/记录、等保记录、"
+            "ITIL 事件/问题、变更申请"
+        ),
         doc_types_generated=[d.doc_type for d in docs],
     )
+
+
+def build_document_tools(state: ProjectState) -> list[BaseTool]:
+    """Lightweight tools for DocumentAgent ReAct / ToolRegistry (generation stays in bundle)."""
+
+    @tool
+    def list_document_templates() -> str:
+        """List Markdown deliverable types available in the document bundle."""
+        return "可用模板: " + ", ".join(DOCUMENT_TEMPLATE_TYPES)
+
+    @tool
+    def preview_solution_for_documents() -> str:
+        """Preview last solution fields used as document input."""
+        solution = state.get("last_solution") or {}
+        if not solution:
+            return "无 last_solution，请先生成方案。"
+        rec_id = solution.get("recommended_solution_id", "")
+        return (
+            f"方案 ID: {rec_id}\n"
+            f"问题分析: {solution.get('problem_analysis', '')[:400]}\n"
+            f"根因数: {len(solution.get('root_causes', []))}"
+        )
+
+    @tool
+    def preview_compliance_for_documents() -> str:
+        """Preview compliance status used to enrich generated documents."""
+        compliance = state.get("last_compliance_result") or {}
+        if not compliance:
+            return "无合规结果，文档将使用默认占位。"
+        return (
+            f"合规状态: {compliance.get('compliance_status', compliance.get('overall_status', 'unknown'))}\n"
+            f"缺口数: {len(compliance.get('missing_items', []))}\n"
+            f"建议数: {len(compliance.get('recommendations', []))}"
+        )
+
+    return [list_document_templates, preview_solution_for_documents, preview_compliance_for_documents]

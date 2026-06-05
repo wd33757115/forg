@@ -49,7 +49,7 @@ def test_closed_loop_problem_solver_compliance():
     # DocumentAgent only runs when compliant or partial
     assert len(result.get("conversation_history", [])) >= 4
     if comp_status in ("compliant", "partial"):
-        assert len(result.get("generated_documents", [])) == 5
+        assert len(result.get("generated_documents", [])) == 7
         assert result["final_output"]["document_generation"] == "completed"
     else:
         assert result["final_output"]["document_generation"] == "skipped"

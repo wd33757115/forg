@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
@@ -26,6 +26,8 @@ __all__ = [
     "WORKFLOW_OPERATIONS_STANDALONE",
     "WORKFLOW_PROBLEM_COMPLIANCE_LOOP",
     "WORKFLOW_SECURITY_STANDALONE",
+    "ComplianceCheckMode",
+    "DEFAULT_CHECK_MODE",
     "create_initial_state",
 ]
 
@@ -33,6 +35,10 @@ __all__ = [
 WORKFLOW_PROBLEM_COMPLIANCE_LOOP = "problem_compliance_loop"
 WORKFLOW_SECURITY_STANDALONE = "security_standalone"
 WORKFLOW_OPERATIONS_STANDALONE = "operations_standalone"
+
+# Compliance evaluation strictness (M1 skeleton; full logic in Batch 3.5)
+ComplianceCheckMode = Literal["strict", "advisory", "lenient"]
+DEFAULT_CHECK_MODE: ComplianceCheckMode = "advisory"
 
 
 class WBSItem(BaseModel):
@@ -153,6 +159,8 @@ class ProjectState(TypedDict):
     workflow_step: str | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
     next_agent: str | None
+    # Compliance strictness: strict | advisory | lenient
+    check_mode: str | None
 
 
 def create_initial_state(
@@ -197,4 +205,5 @@ def create_initial_state(
         active_workflow=None,
         workflow_step=None,
         next_agent=None,
+        check_mode=DEFAULT_CHECK_MODE,
     )

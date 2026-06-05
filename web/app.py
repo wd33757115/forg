@@ -5,14 +5,16 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
-from forge.main import SCENARIO_QUESTIONS, detect_scenario_label, run_forge
+from forge.cli.resolvers import detect_scenario_label
+from forge.cli.runner import run_forge
+from forge.cli.scenarios import DEMO_SCENARIOS, get_scenario
 from forge.utils.result_serializer import build_api_response
 from web.models import HealthResponse, SolveRequest, SolveResponse
 
 app = FastAPI(
     title="Forge",
     description="项目级 AI 操作系统 — 多 Agent 协作 API",
-    version="0.1.0",
+    version="1.0.0",
 )
 
 _HOME_HTML = """<!DOCTYPE html>
@@ -46,15 +48,15 @@ _HOME_HTML = """<!DOCTYPE html>
 </html>"""
 
 
-def _resolve_question(body: SolveRequest) -> tuple[str, str]:
-    """Return (question text, scenario label)."""
+def _resolve_scenario(body: SolveRequest) -> tuple[str | None, str]:
+    """Return (problem_type_hint, scenario label)."""
     if body.scenario != "auto":
-        question = body.question
-        if body.question.strip() in SCENARIO_QUESTIONS.values():
-            return question, body.scenario
-        # Allow scenario preset to override only when question is empty-ish — keep user question
-        return question, body.scenario
-    return body.question, detect_scenario_label(body.question)
+        preset = get_scenario(body.scenario) or DEMO_SCENARIOS.get(body.scenario)
+        hint = body.problem_type_hint or (preset.problem_type_hint if preset else None)
+        label = preset.description if preset else body.scenario
+        return hint, label
+    hint = body.problem_type_hint
+    return hint, detect_scenario_label(body.question)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,16 +81,21 @@ def solve(body: SolveRequest) -> SolveResponse:
     if not question:
         raise HTTPException(status_code=422, detail="question 不能为空")
 
+    problem_hint, scenario_label = _resolve_scenario(body)
+
     try:
         result = run_forge(
             question,
             project_id=body.project_id,
             protection_level=body.protection_level,
+            problem_type_hint=problem_hint,
+            check_mode=body.check_mode,
+            demo_seed=body.demo_seed,
         )
         payload = build_api_response(
             result,
             question=question,
-            scenario=detect_scenario_label(question),
+            scenario=scenario_label,
         )
         return SolveResponse(**payload)
     except Exception as exc:

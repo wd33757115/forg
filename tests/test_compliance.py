@@ -73,6 +73,21 @@ def test_compliance_agent_heuristic_output(base_state):
     assert output.risk_level in ("low", "medium", "high", "critical")
     assert len(output.results) == 3
     assert output.next_action
+    # M2: check items carry canonical rule_id
+    items = [i for mod in output.results for i in mod.items]
+    assert items
+    assert sum(1 for i in items if i.rule_id or i.check_id.startswith(("db-", "itil-", "si-"))) >= len(
+        items
+    ) * 0.8
+
+
+def test_compliance_check_mode_in_result(base_state):
+    base_state["check_mode"] = "strict"
+    agent = ComplianceAgent()
+    updates = agent.run(base_state)
+    structured = updates["last_compliance_result"]
+    assert structured.get("check_mode") == "strict"
+    assert "base_compliance_status" in structured
 
 
 def test_validate_solution_integration(base_state):

@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from forge.agents.base import BaseAgent
+from forge.core.base_agent import BaseAgent
 from forge.agents.problem_classifier import (
     PROBLEM_TYPE_LABELS,
     ProblemType,
@@ -22,13 +21,11 @@ from forge.prompts.problem_solver_prompt import (
     PROBLEM_SOLVER_STRUCTURED_PROMPT,
     PROBLEM_SOLVER_SYSTEM,
 )
-from forge.tools.problem_solver_tools import build_problem_solver_tools, run_tool_research
+from forge.tools.problem_solver_tools import run_tool_research
 from forge.utils.agent_context import build_handoff
 from forge.utils.conversation import record_conversation, record_thinking
-from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
-from forge.utils.logger import get_logger
-
-logger = get_logger("problem_solver")
+from forge.utils.knowledge import format_knowledge_context, search_knowledge
+from forge.utils.llm import escape_braces_for_format
 
 
 class ProblemSolverAgent(BaseAgent):
@@ -66,15 +63,13 @@ class ProblemSolverAgent(BaseAgent):
         problem_type: ProblemType,
         type_reason: str,
     ) -> str:
-        """Run LangGraph ReAct agent with project-bound tools."""
+        """Run ReAct via BaseAgent helper + ToolRegistry tools."""
         priority_modules = ", ".join(modules_for_problem_type(problem_type))
-        llm = get_llm(temperature=0.2)
-        if llm is None:
-            return run_tool_research(state, problem_statement)
-
-        tools = build_problem_solver_tools(state)
-        react_agent = create_react_agent(llm, tools)
-
+        fallback = run_tool_research(
+            state, problem_statement, problem_type=problem_type
+        )
+        prior = search_knowledge(state, tags=[problem_type], limit=3)
+        prior_cases = format_knowledge_context(prior)
         task = PROBLEM_SOLVER_REACT_TASK.format(
             problem_statement=problem_statement,
             problem_type=problem_type,
@@ -83,26 +78,15 @@ class ProblemSolverAgent(BaseAgent):
             project_id=state.get("project_id", ""),
             current_phase=state.get("current_phase", ""),
             enabled_modules=", ".join(state.get("enabled_modules", [])),
+            prior_cases=prior_cases,
         )
-
-        try:
-            result = invoke_react_agent(
-                react_agent,
-                {
-                    "messages": [
-                        SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
-                        HumanMessage(content=task),
-                    ]
-                },
-            )
-        except Exception as exc:
-            logger.warning("ReAct phase failed, using tool research fallback: %s", exc)
-            return run_tool_research(state, problem_statement)
-
-        final_messages = result.get("messages", [])
-        if final_messages:
-            return str(getattr(final_messages[-1], "content", final_messages[-1]))
-        return run_tool_research(state, problem_statement)
+        return self.run_react(
+            state,
+            system=PROBLEM_SOLVER_SYSTEM,
+            task=task,
+            temperature=0.2,
+            fallback=fallback,
+        )
 
     def _synthesize_structured(
         self,
@@ -119,7 +103,7 @@ class ProblemSolverAgent(BaseAgent):
             type_reason=type_reason,
             research_context=escape_braces_for_format(research_context[:12000]),
         )
-        result = invoke_structured_output(
+        result = self.invoke_structured(
             SolutionOutput,
             [
                 SystemMessage(content=PROBLEM_SOLVER_SYSTEM),
@@ -129,11 +113,11 @@ class ProblemSolverAgent(BaseAgent):
         )
         if isinstance(result, SolutionOutput):
             result.problem_type = result.problem_type or problem_type
-            if not result.rule_pack_references:
-                result.rule_pack_references = fetch_relevant_rules(
-                    problem_type, problem_statement
-                )
-            return self._validate_solution_output(result)
+            return self._validate_solution_output(
+                result,
+                problem_statement=problem_statement,
+                problem_type=problem_type,
+            )
 
         return self._build_heuristic_solution(
             state, problem_statement, research_context, problem_type, type_reason
@@ -308,7 +292,13 @@ class ProblemSolverAgent(BaseAgent):
             itil_considerations=itil or ["按事件管理流程记录"],
         )
 
-    def _validate_solution_output(self, output: SolutionOutput) -> SolutionOutput:
+    def _validate_solution_output(
+        self,
+        output: SolutionOutput,
+        *,
+        problem_statement: str = "",
+        problem_type: ProblemType | None = None,
+    ) -> SolutionOutput:
         """Ensure recommended_solution_id references an existing solution."""
         valid_ids = {s.id for s in output.solutions}
         if output.recommended_solution_id not in valid_ids and output.solutions:
@@ -327,6 +317,13 @@ class ProblemSolverAgent(BaseAgent):
                     risk_level="low",
                 )
             )
+        if not output.rule_pack_references:
+            ptype = problem_type or output.problem_type
+            if ptype:
+                output.rule_pack_references = fetch_relevant_rules(
+                    ptype,
+                    problem_statement or output.problem_analysis,
+                )
         return output
 
     def _format_response(self, solution: SolutionOutput) -> str:
@@ -366,7 +363,7 @@ class ProblemSolverAgent(BaseAgent):
             problem_statement = "未提供具体问题描述，请分析当前项目风险与待办。"
 
         problem_type, type_reason = self._classify(state, problem_statement)
-        logger.info("Problem classified | type=%s reason=%s", problem_type, type_reason)
+        self.logger.info("Problem classified | type=%s reason=%s", problem_type, type_reason)
 
         research_context = self._run_react(state, problem_statement, problem_type, type_reason)
         solution = self._synthesize_structured(
@@ -421,7 +418,12 @@ class ProblemSolverAgent(BaseAgent):
             )
 
         attempt = retry_count + 1
-        logger.info("Solution generated | id=%s type=%s attempt=%d", solution.recommended_solution_id, problem_type, attempt)
+        self.logger.info(
+            "Solution generated | id=%s type=%s attempt=%d",
+            solution.recommended_solution_id,
+            problem_type,
+            attempt,
+        )
 
         agent_updates: dict[str, Any] = {
             **self.reply(response_body),

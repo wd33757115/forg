@@ -5,9 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langgraph.prebuilt import create_react_agent
 
-from forge.agents.base import BaseAgent
+from forge.core.base_agent import BaseAgent
 from forge.agents.pm_advisor_output import ActionItem, PMAdvisorOutput, RiskItem
 from forge.core.state import ProjectState
 from forge.prompts.pm_advisor_prompt import (
@@ -15,12 +14,9 @@ from forge.prompts.pm_advisor_prompt import (
     PM_ADVISOR_STRUCTURED_PROMPT,
     PM_ADVISOR_SYSTEM,
 )
-from forge.tools.pm_advisor_tools import build_pm_advisor_tools, run_pm_advisor_research
+from forge.tools.pm_advisor_tools import run_pm_advisor_research
 from forge.utils.conversation import record_conversation
-from forge.utils.llm import escape_braces_for_format, get_llm, invoke_react_agent, invoke_structured_output
-from forge.utils.logger import get_logger
-
-logger = get_logger("pm_advisor")
+from forge.utils.llm import escape_braces_for_format
 
 
 class PMAdvisorAgent(BaseAgent):
@@ -45,34 +41,18 @@ class PMAdvisorAgent(BaseAgent):
         return "项目执行结果汇总"
 
     def _run_react(self, state: ProjectState, user_question: str) -> str:
-        llm = get_llm(temperature=0.2)
-        if llm is None:
-            return run_pm_advisor_research(state, user_question)
-
-        tools = build_pm_advisor_tools(state)
-        react_agent = create_react_agent(llm, tools)
         task = PM_ADVISOR_REACT_TASK.format(
             project_id=state.get("project_id", ""),
             current_phase=state.get("current_phase", ""),
             user_question=user_question[:2000],
         )
-        try:
-            result = invoke_react_agent(
-                react_agent,
-                {
-                    "messages": [
-                        SystemMessage(content=PM_ADVISOR_SYSTEM),
-                        HumanMessage(content=task),
-                    ]
-                },
-            )
-        except Exception as exc:
-            logger.warning("PM Advisor ReAct failed, heuristic fallback: %s", exc)
-            return run_pm_advisor_research(state, user_question)
-        final_messages = result.get("messages", [])
-        if final_messages:
-            return str(getattr(final_messages[-1], "content", final_messages[-1]))
-        return run_pm_advisor_research(state, user_question)
+        return self.run_react(
+            state,
+            system=PM_ADVISOR_SYSTEM,
+            task=task,
+            temperature=0.2,
+            fallback=run_pm_advisor_research(state, user_question),
+        )
 
     def _synthesize_structured(
         self,
@@ -84,7 +64,7 @@ class PMAdvisorAgent(BaseAgent):
             user_question=user_question,
             research_context=escape_braces_for_format(research_context[:12000]),
         )
-        result = invoke_structured_output(
+        result = self.invoke_structured(
             PMAdvisorOutput,
             [
                 SystemMessage(content=PM_ADVISOR_SYSTEM),
@@ -270,7 +250,7 @@ class PMAdvisorAgent(BaseAgent):
             "metadata": {"advice": advice_dict},
         }
 
-        logger.info(
+        self.logger.info(
             "PM advice generated | actions=%d risks=%d",
             len(advice.action_items),
             len(advice.risks),

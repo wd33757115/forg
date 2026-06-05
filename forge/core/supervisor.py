@@ -8,6 +8,11 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 
+from forge.core.orchestrator import (
+    PipelineOrchestrator,
+    OrchestrationContext,
+    orchestration_metadata,
+)
 from forge.core.pipeline import PipelinePlanner
 from forge.core.rule_pack import DEFAULT_PACK_FILE, RulePack
 from forge.core.rule_pack_loader import RulePackLoader
@@ -109,6 +114,11 @@ class Supervisor:
         self.rule_pack: RulePack = loader.load(rule_pack_path)
         self._enabled_modules = self.rule_pack.get_enabled_modules()
         self._planner = PipelinePlanner()
+        self._orchestrator = PipelineOrchestrator(self._planner)
+
+    def _resolve_orchestration(self, content: str, state: ProjectState) -> OrchestrationContext:
+        """Classify problem type and resolve specialist agent queue."""
+        return self._orchestrator.resolve_context(state, content)
 
     def _state_rule_pack_update(self, state: ProjectState) -> dict[str, Any]:
         pack_dict = self.rule_pack.to_state_dict()
@@ -200,23 +210,27 @@ class Supervisor:
         return is_sec, is_ops
 
     def _build_specialist_queue(self, content: str, state: ProjectState | None = None) -> list[str]:
-        """Ordered specialist chain: security before operations when both match."""
+        """Ordered specialist chain from problem type + keyword intent."""
         st: ProjectState = state or {}  # type: ignore[assignment]
-        is_sec, is_ops = self._resolve_intent_flags(content, st)
-        return self._planner.build_specialist_queue(
-            content,
-            is_security=is_sec,
-            is_operations=is_ops,
-        )
+        ctx = self._resolve_orchestration(content, st)
+        return list(ctx.specialist_queue)
 
-    def _build_workflow_plan(self, content: str, *, entry_agent: AgentName) -> dict[str, Any]:
+    def _build_workflow_plan(
+        self,
+        content: str,
+        *,
+        entry_agent: AgentName,
+        state: ProjectState | None = None,
+    ) -> dict[str, Any]:
         """Return a structured pipeline plan stored on ProjectState."""
+        st: ProjectState = state or {}  # type: ignore[assignment]
         is_sec = self._is_security_intent(content)
         is_ops = self._is_operations_intent(content)
-        is_prob = self._is_problem_intent(content)
 
         if entry_agent == AgentName.PROBLEM_SOLVER:
-            plan = self._planner.build_for_problem_loop(content, is_security=is_sec, is_operations=is_ops)
+            ctx = self._resolve_orchestration(content, st)
+            plan = self._orchestrator.build_problem_loop_plan(ctx)
+            return {**plan.to_dict(), **orchestration_metadata(ctx, plan)}
         elif entry_agent == AgentName.SECURITY:
             plan = self._planner.build_for_security_standalone(content)
         elif entry_agent == AgentName.OPERATIONS:
@@ -266,9 +280,11 @@ class Supervisor:
                 )
 
         if messages:
-            content = getattr(messages[-1], "content", str(messages[-1])).lower()
-            is_sec, is_ops = self._resolve_intent_flags(content, state)
-            specialist_queue = self._build_specialist_queue(content, state)
+            content_raw = str(getattr(messages[-1], "content", messages[-1]))
+            content = content_raw.lower()
+            ctx = self._resolve_orchestration(content_raw, state)
+            is_sec, is_ops = ctx.is_security, ctx.is_operations
+            specialist_queue = ctx.specialist_queue
 
             if self._is_document_intent(content):
                 return SupervisorDecision(
@@ -455,8 +471,19 @@ class Supervisor:
         last_content = ""
         if messages := state.get("messages"):
             last_content = str(getattr(messages[-1], "content", messages[-1])).lower()
+        orchestration_ctx: OrchestrationContext | None = None
+        if messages := state.get("messages"):
+            orchestration_ctx = self._resolve_orchestration(
+                str(getattr(messages[-1], "content", messages[-1])),
+                state,
+            )
+
         if step == WorkflowStep.INITIAL:
-            plan = self._build_workflow_plan(last_content, entry_agent=decision.next_agent)
+            plan = self._build_workflow_plan(
+                last_content,
+                entry_agent=decision.next_agent,
+                state=state,
+            )
             updates["workflow_plan"] = plan
             stages = plan.get("stages", [])
             log_pipeline_step(
@@ -483,7 +510,13 @@ class Supervisor:
             updates["generated_documents"] = []
             updates["agent_errors"] = []
             updates["pipeline_trace"] = []
-            updates["specialist_queue"] = self._build_specialist_queue(last_content, {**state, **updates})
+            if orchestration_ctx is not None:
+                updates["problem_type"] = orchestration_ctx.problem_type
+                updates["specialist_queue"] = list(orchestration_ctx.specialist_queue)
+            else:
+                updates["specialist_queue"] = self._build_specialist_queue(
+                    last_content, {**state, **updates}
+                )
             updates["specialists_completed"] = []
 
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.SECURITY:

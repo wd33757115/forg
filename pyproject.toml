@@ -35,3 +35,11 @@ include = ["forge*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.pytest.ini_options]
+markers = [
+    "llm: integration tests that call a real LLM API (skipped in default CI)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

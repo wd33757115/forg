@@ -29,6 +29,6 @@ def test_full_pipeline_generates_documents():
     assert result["final_output"]
     status = result["last_compliance_result"].get("compliance_status")
     if status in ("compliant", "partial"):
-        assert len(result["generated_documents"]) == 5
+        assert len(result["generated_documents"]) == 7
         assert result["final_output"]["document_generation"] == "completed"
         assert result["generated_documents"][0]["format"] == "markdown"
