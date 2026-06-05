@@ -1,4 +1,4 @@
-"""LangGraph workflow — ProblemSolver ↔ Compliance closed-loop orchestration."""
+"""LangGraph workflow — structured multi-agent pipeline orchestration."""
 
 from __future__ import annotations
 
@@ -16,21 +16,18 @@ from forge.core.supervisor import (
     route_after_supervisor,
     supervisor_post_compliance_node,
 )
+from forge.utils.agent_runner import wrap_agent_node
 
 
 def build_workflow() -> StateGraph:
     """
-    Construct the Forge StateGraph with closed-loop conditional edges.
+    Construct the Forge StateGraph.
 
-    Problem-solving flow:
-        supervisor → problem_solver → (security|operations)* → compliance
-            → supervisor_post_compliance → (retry) | document → pm_advisor → finalize
+    Standard problem-solving pipeline (Supervisor planned):
+        ProblemSolver → (Security|Operations)* → Compliance
+            → (retry ≤2) → Document → PMAdvisor → Finalize
 
-    Standalone flows:
-        supervisor → security → compliance → pm_advisor → finalize
-        supervisor → operations → pm_advisor → finalize
-        supervisor → compliance → pm_advisor → finalize
-        supervisor → document → pm_advisor → finalize
+    All agent nodes are wrapped with ``wrap_agent_node`` for tracing and error recovery.
     """
     from forge.agents.compliance import compliance_node
     from forge.agents.document import document_node
@@ -44,17 +41,34 @@ def build_workflow() -> StateGraph:
 
     graph.add_node(AgentName.SUPERVISOR, supervisor)
     graph.add_node("supervisor_post_compliance", supervisor_post_compliance_node)
-    graph.add_node(AgentName.PROBLEM_SOLVER, problem_solver_node)
-    graph.add_node(AgentName.COMPLIANCE, compliance_node)
-    graph.add_node(AgentName.SECURITY, security_node)
-    graph.add_node(AgentName.OPERATIONS, operations_node)
-    graph.add_node(AgentName.DOCUMENT, document_node)
-    graph.add_node(AgentName.PM_ADVISOR, pm_advisor_node)
+    graph.add_node(
+        AgentName.PROBLEM_SOLVER,
+        wrap_agent_node(problem_solver_node, AgentName.PROBLEM_SOLVER, optional=False),
+    )
+    graph.add_node(
+        AgentName.COMPLIANCE,
+        wrap_agent_node(compliance_node, AgentName.COMPLIANCE, optional=False),
+    )
+    graph.add_node(
+        AgentName.SECURITY,
+        wrap_agent_node(security_node, AgentName.SECURITY, optional=True),
+    )
+    graph.add_node(
+        AgentName.OPERATIONS,
+        wrap_agent_node(operations_node, AgentName.OPERATIONS, optional=True),
+    )
+    graph.add_node(
+        AgentName.DOCUMENT,
+        wrap_agent_node(document_node, AgentName.DOCUMENT, optional=True),
+    )
+    graph.add_node(
+        AgentName.PM_ADVISOR,
+        wrap_agent_node(pm_advisor_node, AgentName.PM_ADVISOR, optional=True),
+    )
     graph.add_node(AgentName.FINALIZE, finalize_node)
 
     graph.set_entry_point(AgentName.SUPERVISOR)
 
-    # Supervisor → specialist or finalize
     graph.add_conditional_edges(
         AgentName.SUPERVISOR,
         route_after_supervisor,
@@ -70,7 +84,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # ProblemSolver → specialist chain or Compliance (closed loop)
     graph.add_conditional_edges(
         AgentName.PROBLEM_SOLVER,
         route_after_problem_solver,
@@ -82,7 +95,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Compliance → post-compliance supervisor (loop) or finalize (standalone)
     graph.add_conditional_edges(
         AgentName.COMPLIANCE,
         route_after_compliance,
@@ -92,7 +104,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Post-compliance routing → ProblemSolver retry | Document | PMAdvisor
     graph.add_conditional_edges(
         "supervisor_post_compliance",
         route_after_supervisor,
@@ -105,7 +116,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Security / Operations → next hop in specialist chain or compliance/pm
     graph.add_conditional_edges(
         AgentName.SECURITY,
         route_after_security,
@@ -127,7 +137,6 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Document → PMAdvisor → Finalize (assemble final_output)
     graph.add_edge(AgentName.DOCUMENT, AgentName.PM_ADVISOR)
     graph.add_edge(AgentName.PM_ADVISOR, AgentName.FINALIZE)
     graph.add_edge(AgentName.FINALIZE, END)

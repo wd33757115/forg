@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel, Field
 
+from forge.core.pipeline import PipelinePlanner
 from forge.core.rule_pack import DEFAULT_PACK_FILE, RulePack
 from forge.core.rule_pack_loader import RulePackLoader
 from forge.core.state import (
@@ -17,7 +18,7 @@ from forge.core.state import (
     ProjectState,
 )
 from forge.utils.conversation import record_conversation
-from forge.utils.logger import get_logger
+from forge.utils.logger import get_logger, log_pipeline_step
 
 logger = get_logger("supervisor")
 
@@ -107,6 +108,7 @@ class Supervisor:
         loader = RulePackLoader.get_instance()
         self.rule_pack: RulePack = loader.load(rule_pack_path)
         self._enabled_modules = self.rule_pack.get_enabled_modules()
+        self._planner = PipelinePlanner()
 
     def _state_rule_pack_update(self, state: ProjectState) -> dict[str, Any]:
         pack_dict = self.rule_pack.to_state_dict()
@@ -186,12 +188,32 @@ class Supervisor:
 
     def _build_specialist_queue(self, content: str) -> list[str]:
         """Ordered specialist chain: security before operations when both match."""
-        queue: list[str] = []
-        if self._is_security_intent(content):
-            queue.append(AgentName.SECURITY)
-        if self._is_operations_intent(content):
-            queue.append(AgentName.OPERATIONS)
-        return queue
+        return self._planner.build_specialist_queue(
+            content,
+            is_security=self._is_security_intent(content),
+            is_operations=self._is_operations_intent(content),
+        )
+
+    def _build_workflow_plan(self, content: str, *, entry_agent: AgentName) -> dict[str, Any]:
+        """Return a structured pipeline plan stored on ProjectState."""
+        is_sec = self._is_security_intent(content)
+        is_ops = self._is_operations_intent(content)
+        is_prob = self._is_problem_intent(content)
+
+        if entry_agent == AgentName.PROBLEM_SOLVER:
+            plan = self._planner.build_for_problem_loop(content, is_security=is_sec, is_operations=is_ops)
+        elif entry_agent == AgentName.SECURITY:
+            plan = self._planner.build_for_security_standalone(content)
+        elif entry_agent == AgentName.OPERATIONS:
+            plan = self._planner.build_for_operations_standalone(content)
+        elif entry_agent == AgentName.COMPLIANCE:
+            plan = self._planner.build_for_compliance_standalone()
+        elif entry_agent == AgentName.DOCUMENT:
+            plan = self._planner.build_for_document_standalone()
+        else:
+            plan = self._planner.build_for_problem_loop(content, is_security=is_sec, is_operations=is_ops)
+
+        return plan.to_dict()
 
     def decide_initial(self, state: ProjectState) -> SupervisorDecision:
         """Route a new user request to the appropriate entry agent."""
@@ -393,6 +415,16 @@ class Supervisor:
         last_content = ""
         if messages := state.get("messages"):
             last_content = str(getattr(messages[-1], "content", messages[-1])).lower()
+        if step == WorkflowStep.INITIAL:
+            plan = self._build_workflow_plan(last_content, entry_agent=decision.next_agent)
+            updates["workflow_plan"] = plan
+            log_pipeline_step(
+                logger,
+                run_id=state.get("run_id", "?"),
+                step="supervisor.plan",
+                detail=plan.get("stages", []).__repr__(),
+            )
+
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.PROBLEM_SOLVER:
             updates["active_workflow"] = WORKFLOW_PROBLEM_COMPLIANCE_LOOP
             updates["compliance_retry_count"] = 0
@@ -400,6 +432,10 @@ class Supervisor:
             updates["last_compliance_result"] = None
             updates["last_security_result"] = None
             updates["last_operations_result"] = None
+            updates["last_pm_advice"] = None
+            updates["generated_documents"] = []
+            updates["agent_errors"] = []
+            updates["pipeline_trace"] = []
             updates["specialist_queue"] = self._build_specialist_queue(last_content)
             updates["specialists_completed"] = []
 
@@ -408,14 +444,32 @@ class Supervisor:
                 updates["active_workflow"] = WORKFLOW_SECURITY_STANDALONE
                 updates["specialist_queue"] = [AgentName.SECURITY]
                 updates["specialists_completed"] = []
+                updates["agent_errors"] = []
+                updates["pipeline_trace"] = []
 
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.OPERATIONS:
             if not self._is_problem_intent(last_content):
                 updates["active_workflow"] = WORKFLOW_OPERATIONS_STANDALONE
                 updates["specialist_queue"] = [AgentName.OPERATIONS]
                 updates["specialists_completed"] = []
+                updates["agent_errors"] = []
+                updates["pipeline_trace"] = []
 
-        logger.info("Route → %s | %s", decision.next_agent, decision.reason)
+        if step == WorkflowStep.POST_COMPLIANCE and decision.next_agent == AgentName.PROBLEM_SOLVER:
+            log_pipeline_step(
+                logger,
+                run_id=state.get("run_id", "?"),
+                step="supervisor.retry",
+                detail=decision.reason,
+                level="WARNING",
+            )
+
+        log_pipeline_step(
+            logger,
+            run_id=state.get("run_id", "?"),
+            step=f"supervisor.route → {decision.next_agent}",
+            detail=decision.reason,
+        )
         updates.update(
             record_conversation(
                 state,
@@ -518,16 +572,36 @@ def supervisor_post_compliance_node(state: ProjectState) -> dict[str, Any]:
 
     Separated so the graph can route compliance → supervisor → problem_solver|finalize.
     """
-    state_with_step = {**state, "workflow_step": WorkflowStep.POST_COMPLIANCE}
-    supervisor = Supervisor()
-    result = supervisor(state_with_step)
+    try:
+        state_with_step = {**state, "workflow_step": WorkflowStep.POST_COMPLIANCE}
+        supervisor = Supervisor()
+        result = supervisor(state_with_step)
 
-    # If supervisor decides to retry, route through retry step on next supervisor call
-    if result.get("next_agent") == AgentName.PROBLEM_SOLVER.value:
-        retry_state = {**state, **result, "workflow_step": WorkflowStep.RETRY}
-        return Supervisor()(retry_state)
+        # If supervisor decides to retry, route through retry step on next supervisor call
+        if result.get("next_agent") == AgentName.PROBLEM_SOLVER.value:
+            retry_state = {**state, **result, "workflow_step": WorkflowStep.RETRY}
+            return Supervisor()(retry_state)
 
-    return result
+        return result
+    except Exception as exc:
+        logger.exception("supervisor_post_compliance failed: %s", exc)
+        return {
+            "next_agent": AgentName.PM_ADVISOR.value,
+            "agent_errors": list(state.get("agent_errors", []))
+            + [
+                {
+                    "agent": "supervisor",
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            ],
+            "messages": [
+                AIMessage(
+                    content=f"[Supervisor] 合规后路由失败，跳转 PM 总结: {exc}",
+                    name="supervisor",
+                )
+            ],
+        }
 
 
 def finalize_node(state: ProjectState) -> dict[str, Any]:
@@ -549,6 +623,10 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
 
     doc_generation = "completed" if generated else "skipped"
 
+    agent_errors = state.get("agent_errors", [])
+    pipeline_trace = state.get("pipeline_trace", [])
+    workflow_plan = state.get("workflow_plan") or {}
+
     final_output = {
         "solution": solution,
         "compliance": compliance,
@@ -560,6 +638,10 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "document_generation": doc_generation,
         "compliance_status": comp_status,
         "risk_level": risk,
+        "workflow_plan": workflow_plan,
+        "pipeline_trace": pipeline_trace,
+        "agent_errors": agent_errors,
+        "run_id": state.get("run_id"),
     }
 
     lines = [
@@ -638,12 +720,14 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
             ]
         )
 
-    logger.info(
-        "Finalize | compliance=%s risk=%s docs=%d retries=%d",
-        comp_status,
-        risk,
-        len(generated),
-        retry_count,
+    log_pipeline_step(
+        logger,
+        run_id=state.get("run_id", "?"),
+        step="finalize",
+        detail=(
+            f"compliance={comp_status} risk={risk} docs={len(generated)} "
+            f"retries={retry_count} errors={len(agent_errors)}"
+        ),
     )
 
     finalize_updates: dict[str, Any] = {

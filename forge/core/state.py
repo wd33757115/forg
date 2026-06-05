@@ -138,6 +138,11 @@ class ProjectState(TypedDict):
     last_operations_result: dict[str, Any] | None
     specialist_queue: list[str]
     specialists_completed: list[str]
+    # Pipeline orchestration (Supervisor)
+    workflow_plan: dict[str, Any] | None
+    pipeline_trace: list[dict[str, Any]]
+    agent_errors: list[dict[str, Any]]
+    run_id: str | None
     final_output: dict[str, Any] | None
     conversation_history: list[dict[str, Any]]
     active_workflow: str | None
@@ -175,6 +180,10 @@ def create_initial_state(
         last_operations_result=None,
         specialist_queue=[],
         specialists_completed=[],
+        workflow_plan=None,
+        pipeline_trace=[],
+        agent_errors=[],
+        run_id=None,
         final_output=None,
         conversation_history=[],
         active_workflow=None,

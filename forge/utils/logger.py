@@ -42,6 +42,21 @@ def setup_logging(level: Level = "INFO", *, log_file: str | None = None) -> None
     _configured = True
 
 
+def log_pipeline_step(
+    logger: logging.Logger,
+    *,
+    run_id: str,
+    step: str,
+    detail: str = "",
+    level: Level = "INFO",
+) -> None:
+    """Emit a structured pipeline step log for agent call-chain tracing."""
+    msg = f"[{run_id}] {step}"
+    if detail:
+        msg = f"{msg} | {detail}"
+    logger.log(getattr(logging, level), msg)
+
+
 def get_logger(name: str) -> logging.Logger:
     """
     Get a child logger under the ``forge`` namespace.

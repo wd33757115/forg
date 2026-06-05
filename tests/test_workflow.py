@@ -43,6 +43,8 @@ def test_closed_loop_problem_solver_compliance():
     assert result.get("final_output") is not None
     assert result.get("last_pm_advice") is not None
     assert result["final_output"].get("pm_advice")
+    assert result.get("workflow_plan")
+    assert len(result.get("pipeline_trace", [])) >= 1
 
     # DocumentAgent only runs when compliant or partial
     assert len(result.get("conversation_history", [])) >= 4
@@ -102,6 +104,9 @@ def test_state_has_loop_fields():
     assert state["last_operations_result"] is None
     assert state["specialist_queue"] == []
     assert state["specialists_completed"] == []
+    assert state["workflow_plan"] is None
+    assert state["pipeline_trace"] == []
+    assert state["agent_errors"] == []
     assert state["final_output"] is None
     assert state["conversation_history"] == []
 
