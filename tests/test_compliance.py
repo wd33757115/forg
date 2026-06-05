@@ -108,15 +108,16 @@ def test_agent_run_persists_structured_results(base_state):
     assert "risk_level" in structured
 
 
-def test_problem_solver_includes_compliance_validation():
+def test_problem_solver_sets_last_solution_in_loop():
     from forge.agents.problem_solver import ProblemSolverAgent
+    from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP
 
     state = create_initial_state("cmp-ps-001")
+    state["active_workflow"] = WORKFLOW_PROBLEM_COMPLIANCE_LOOP
     state["messages"] = [HumanMessage(content="登录401故障")]
     result = ProblemSolverAgent().run(state)
-    kb = result["knowledge_base"][-1]
-    assert "compliance_validation" in kb["metadata"]
-    assert kb["metadata"]["compliance_validation"]["overall_status"]
+    assert result["last_solution"] is not None
+    assert result["last_solution"]["recommended_solution_id"]
 
 
 def test_workflow_compliance_route():
@@ -124,7 +125,8 @@ def test_workflow_compliance_route():
     state = create_initial_state("cmp-wf-001")
     state["messages"] = [HumanMessage(content="等保测评缺口整改")]
     result = app.invoke(state)
-    assert result["next_agent"] == "compliance"
-    cr = result["compliance_results"][-1]
+    assert result["next_agent"] == "__end__"
+    assert result["last_compliance_result"] is not None
+    cr = result["last_compliance_result"]
     assert cr["overall_status"]
     assert len(cr["results"]) == 3

@@ -15,7 +15,8 @@ from forge.agents.compliance_output import (
     ModuleComplianceResult,
 )
 from forge.agents.solution_output import SolutionOutput
-from forge.core.state import ComplianceResult, ProjectState
+from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ComplianceResult, ProjectState
+from forge.agents.solution_output import SolutionOutput
 from forge.prompts.compliance_prompt import (
     COMPLIANCE_REACT_TASK,
     COMPLIANCE_STRUCTURED_PROMPT,
@@ -200,10 +201,12 @@ class ComplianceAgent(BaseAgent):
             "findings": legacy.findings,
             "checked_at": checked_at,
         }
+        compliance_status = "compliant" if output.overall_status == "pass" else "non_compliant"
         structured = {
             **output.model_dump(),
             "id": legacy.id,
             "checked_at": checked_at,
+            "compliance_status": compliance_status,
         }
         return record, structured
 
@@ -257,14 +260,35 @@ class ComplianceAgent(BaseAgent):
         return self.run_compliance(state, context=context, skip_react=True)
 
     def run(self, state: ProjectState) -> dict[str, Any]:
-        """LangGraph node entrypoint — full compliance scan."""
-        output = self.run_compliance(state)
+        """LangGraph node entrypoint — full compliance scan or solution validation."""
+        in_closed_loop = state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP
+        last_solution = state.get("last_solution")
+
+        if in_closed_loop and last_solution:
+            solution = SolutionOutput.model_validate(last_solution)
+            output = self.validate_solution(state, solution)
+        else:
+            output = self.run_compliance(state)
+
         record, structured = self._persist_results(state, output)
 
+        status_label = structured.get("compliance_status", "unknown")
+        if in_closed_loop:
+            body = (
+                f"**方案合规检查**: {status_label}\n"
+                f"- 风险等级: {output.risk_level}\n"
+                f"- 缺口数: {len(output.missing_items)}\n"
+                f"- 下一步: {output.next_action}"
+            )
+        else:
+            body = self._format_response(output)
+
         return {
-            **self.reply(self._format_response(output)),
+            **self.reply(body),
+            "last_compliance_result": structured,
             "compliance_history": state.get("compliance_history", []) + [record],
             "compliance_results": state.get("compliance_results", []) + [structured],
+            "workflow_step": "post_compliance" if in_closed_loop else None,
             "pending_tasks": [
                 t
                 for t in state.get("pending_tasks", [])

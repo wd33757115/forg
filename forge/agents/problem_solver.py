@@ -8,9 +8,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from forge.agents.base import BaseAgent
-from forge.agents.compliance import ComplianceAgent
 from forge.agents.solution_output import SolutionOption, SolutionOutput
-from forge.core.state import ProjectState
+from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
 from forge.prompts.problem_solver_prompt import (
     PROBLEM_SOLVER_REACT_TASK,
     PROBLEM_SOLVER_STRUCTURED_PROMPT,
@@ -34,10 +33,15 @@ class ProblemSolverAgent(BaseAgent):
 
     def _extract_problem_statement(self, state: ProjectState) -> str:
         messages = state.get("messages", [])
+        parts: list[str] = []
         for msg in reversed(messages):
             if getattr(msg, "type", "") == "human" or msg.__class__.__name__ == "HumanMessage":
-                return str(getattr(msg, "content", msg))
-        return ""
+                content = str(getattr(msg, "content", msg))
+                parts.append(content)
+                # Original user question only on first pass; include retry feedback when present
+                if "【合规反馈" not in content:
+                    break
+        return "\n\n".join(reversed(parts)) if parts else ""
 
     def _run_react(self, state: ProjectState, problem_statement: str) -> str:
         """Run LangGraph ReAct agent with project-bound tools."""
@@ -324,36 +328,41 @@ class ProblemSolverAgent(BaseAgent):
         # Phase 2: Structured output synthesis
         solution = self._synthesize_structured(state, problem_statement, research_context)
 
-        # Post-solution compliance validation via ComplianceAgent
-        compliance_validation = ComplianceAgent().validate_solution(state, solution)
+        # On retry, incorporate compliance feedback into solution narrative
+        retry_count = state.get("compliance_retry_count", 0)
+        if retry_count > 0 and state.get("last_compliance_result"):
+            compliance = state["last_compliance_result"]
+            solution.problem_analysis += (
+                f"\n\n[重试 #{retry_count}] 已根据合规反馈优化方案，"
+                f"针对 {len(compliance.get('missing_items', []))} 项缺口进行调整。"
+            )
+
+        solution_dict = solution.model_dump()
+        in_closed_loop = state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP
 
         knowledge_entry = {
             "id": f"kb-{state['project_id']}-ps-{len(state.get('knowledge_base', []))}",
             "category": "problem_solution",
             "content": solution.problem_analysis,
             "source": self.name,
-            "tags": ["problem_solver", "structured_output"],
+            "tags": ["problem_solver", "structured_output", f"attempt_{retry_count + 1}"],
             "metadata": {
-                "solution": solution.model_dump(),
+                "solution": solution_dict,
                 "recommended_solution_id": solution.recommended_solution_id,
-                "compliance_validation": compliance_validation.model_dump(),
+                "retry_count": retry_count,
             },
         }
 
         response_body = self._format_response(solution)
-        response_body += (
-            "\n\n---\n\n## 方案合规校验 (ComplianceAgent)\n"
-            f"- **状态**: {compliance_validation.overall_status}\n"
-            f"- **风险**: {compliance_validation.risk_level}\n"
-            f"- **下一步**: {compliance_validation.next_action}\n"
-        )
-        if compliance_validation.missing_items:
-            response_body += "\n**合规缺口**:\n" + "\n".join(
-                f"- {m}" for m in compliance_validation.missing_items[:5]
+        if in_closed_loop:
+            response_body += (
+                f"\n\n> 方案已生成（第 {retry_count + 1} 次），"
+                "将交由 ComplianceAgent 进行合规检查…"
             )
 
         return {
             **self.reply(response_body),
+            "last_solution": solution_dict,
             "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
             "pending_tasks": [
                 t

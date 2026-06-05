@@ -23,8 +23,12 @@ __all__ = [
     "RulePack",
     "RulePackState",
     "WBSItem",
+    "WORKFLOW_PROBLEM_COMPLIANCE_LOOP",
     "create_initial_state",
 ]
+
+# Closed-loop workflow identifier: ProblemSolver → Compliance → (retry) → finalize
+WORKFLOW_PROBLEM_COMPLIANCE_LOOP = "problem_compliance_loop"
 
 
 class WBSItem(BaseModel):
@@ -120,6 +124,12 @@ class ProjectState(TypedDict):
     messages: Annotated[list, add_messages]
     pending_tasks: list[dict[str, Any]]
     rule_pack: dict[str, Any] | None
+    # Closed-loop control (ProblemSolver ↔ Compliance)
+    compliance_retry_count: int
+    last_solution: dict[str, Any] | None
+    last_compliance_result: dict[str, Any] | None
+    active_workflow: str | None
+    workflow_step: str | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
     next_agent: str | None
 
@@ -144,5 +154,10 @@ def create_initial_state(
         messages=[],
         pending_tasks=[],
         rule_pack=rule_pack,
+        compliance_retry_count=0,
+        last_solution=None,
+        last_compliance_result=None,
+        active_workflow=None,
+        workflow_step=None,
         next_agent=None,
     )
