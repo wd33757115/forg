@@ -53,6 +53,10 @@ CLI_EPILOG = """
   # 列出已保存状态
   py main.py --list-states
 
+  # 启动 Web 服务
+  py main.py --web
+  uvicorn web.app:app --reload
+
 Windows 提示: 请使用 py main.py 或 .\\run.bat，勿用商店占位符 python。
 """
 
@@ -489,11 +493,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--inspect", action="store_true", help="仅查看 --load-state 内容，不执行流程")
     parser.add_argument("--list-states", action="store_true", help="列出 .forge_state/ 下已保存状态")
+    parser.add_argument("--web", action="store_true", help="启动 FastAPI Web 服务")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("FORGE_WEB_HOST", "127.0.0.1"),
+        help="Web 服务监听地址（配合 --web）",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("FORGE_WEB_PORT", "8000")),
+        help="Web 服务端口（配合 --web）",
+    )
     args = parser.parse_args(argv)
 
     _configure_stdio()
     setup_logging("DEBUG" if args.verbose else "INFO", log_file=args.log_file)
     logger = get_logger("main")
+
+    if args.web:
+        try:
+            import uvicorn
+        except ImportError as exc:
+            print(red("缺少依赖: pip install fastapi uvicorn"))
+            return 1
+        print(cyan(f"Forge Web → http://{args.host}:{args.port}/  (Ctrl+C 停止)"))
+        uvicorn.run("web.app:app", host=args.host, port=args.port, log_level="info")
+        return 0
 
     if args.list_states:
         banner()

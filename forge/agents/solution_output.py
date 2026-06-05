@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class SolutionOption(BaseModel):
     """A single remediation option with compliance and ITIL annotations."""
@@ -25,7 +27,7 @@ class SolutionOption(BaseModel):
     risk_level: str = Field(default="medium", description="low | medium | high")
 
 
-class SolutionOutput(BaseModel):
+class SolutionOutput(AgentOutputBase):
     """
     Structured problem-solving result produced by ProblemSolverAgent.
 
@@ -50,6 +52,3 @@ class SolutionOutput(BaseModel):
         default_factory=list,
         description="ITIL/ISO20000 process considerations",
     )
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)

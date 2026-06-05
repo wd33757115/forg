@@ -8,87 +8,103 @@
 |------|------|
 | **ProblemSolverAgent** | ReAct + 结构化输出，问题诊断与多方案推荐 |
 | **ComplianceAgent** | 多标准合规检查（base_si / 等保2.0 / ITIL） |
+| **SecurityAgent** | 等保2.0 安全诊断、配置建议、测评材料辅助 |
+| **OperationsAgent** | ITIL/ISO20000 事件、变更、知识库建议 |
 | **DocumentAgent** | 基于方案+合规结果自动生成 5 类 Markdown 资料 |
-| **Supervisor 闭环** | ProblemSolver → Compliance → (重试≤2次) → Document → Finalize |
+| **PMAdvisorAgent** | 项目经理视角总结、风险与行动项 |
+| **Supervisor 流水线** | ProblemSolver → Security/Ops → Compliance → Document → PM |
 | **Rule Pack** | 可加载的行业规则包（等保、ITIL、系统集成） |
-| **ProjectState** | 持久化项目记忆、conversation_history、final_output |
-| **CLI Demo** | 交互式命令行，漂亮打印完整执行结果 |
+| **ProjectState** | 持久化项目记忆、conversation_history、pipeline_trace |
+| **CLI Demo** | 交互式命令行，场景选择，状态保存/恢复 |
+| **Web API** | FastAPI 服务，`POST /solve` 运行完整流程 |
 
-## 快速开始
+## 标准流水线
 
-```bash
-# 1. 安装
-pip install -e .
+```
+接收问题 → ProblemSolver → (Security | Operations)* → Compliance
+         → (合规重试 ≤2) → Document → PMAdvisor → Finalize
+```
 
-# 2. 配置 API Key（可选，无 Key 时使用规则引擎）
-cp .env.example .env
+## 快速开始（必须使用虚拟环境）
+
+**不要把依赖装进系统 Python。** 项目自带脚本，所有包装在 `.venv/` 里：
+
+```powershell
+# 1. 一键创建 venv + 安装依赖（仅写入 .venv/，不动全局环境）
+.\setup.ps1
+# 或: setup.bat
+
+# 2. 激活虚拟环境（可选，run.bat 会自动用 .venv）
+.\.venv\Scripts\Activate.ps1
+
+# 3. 配置 API Key（可选，无 Key 时使用规则引擎）
+copy .env.example .env
 # 编辑 .env: DEEPSEEK_API_KEY=sk-your-key
 
-# 3. 运行 Demo（Windows 请用 py 或 .\run.bat，勿用 Store 占位符 python）
-py main.py                          # 默认示例问题
-py main.py -i                         # 交互式选择
-py main.py --example 2                # ITIL 事件示例
-py main.py "等保三级登录401故障" -v    # 自定义问题 + 详细日志
-py main.py --show-docs                # 显示完整生成资料
-
-# 或双击 / 命令行: .\run.bat --example 2
+# 4. 运行测试（在 venv 内）
+.\.venv\Scripts\python.exe -m pytest tests/ -q
 ```
 
-> **Windows 提示**：若 `python main.py` 无任何输出即返回，说明 `python` 指向
-> `WindowsApps\python.exe`（微软商店占位符）。请改用 `py main.py`、`.\\run.bat`，
-> 或在「设置 → 应用 → 应用执行别名」中关闭 `python.exe` / `python3.exe` 别名。
+> 若 pip 镜像报错，setup 脚本默认使用 `https://pypi.org/simple`。
 
-## 示例问题
+## CLI Demo
+
+先执行 `.\setup.ps1`，之后用 `.\run.bat` / `.\run.ps1`（自动走 `.venv`，勿用全局 `pip` / `python`）。
 
 ```bash
-# 等保相关
-py main.py "等保三级系统登录认证失败，请诊断并生成整改资料"
+# 场景演示
+.\run.bat --scenario security      # 等保/安全问题
+.\run.bat --scenario operations    # ITIL/运维事件
+.\run.bat --scenario general       # 通用技术问题
 
-# ITIL 事件
-py main.py "ITIL事件：核心交换机故障导致业务中断，请分析根因"
+# 交互式 / 自定义
+.\run.bat -i
+.\run.bat "等保三级登录401故障" -v
 
-# 技术故障
-py main.py "数据库连接池耗尽导致接口超时，请给出合规解决方案"
+# 状态持久化
+.\run.bat --scenario security --save-state
+.\run.bat --resume "新的问题描述"
+.\run.bat --list-states
 ```
 
-## 输出内容
+## Web 服务
 
-Demo 运行后会打印：
-
-1. **问题分析** — ProblemSolver 根因分析
-2. **推荐方案** — 方案 ID、实施路径、等保/ITIL 影响
-3. **合规检查结果** — 三模块得分、缺口、整改建议、重试次数
-4. **生成资料列表** — 整改方案、等保记录、ITIL 事件/问题、变更申请
-5. **Agent 交互时间线** — conversation_history 完整记录
-
-## Rule Pack
-
+```bash
+.\run.bat --web
+# 或（venv 已激活时）
+uvicorn web.app:app --reload --host 127.0.0.1 --port 8000
 ```
-rule_packs/
-├── system_integration_v1.json   # 完整规则包（base_si + 等保 + ITIL）
-├── dengbao_level3_sample.json     # 等保三级 8 项精选检查项
-└── itil_basic_sample.json         # ITIL 4 基础 8 项实践
+
+访问：
+
+- 首页：http://127.0.0.1:8000/
+- API 文档：http://127.0.0.1:8000/docs
+- 健康检查：`GET /health`
+- 求解接口：`POST /solve`
+
+```bash
+curl -X POST http://127.0.0.1:8000/solve \
+  -H "Content-Type: application/json" \
+  -d '{"question": "等保三级登录401故障，请诊断", "scenario": "security"}'
 ```
 
 ## 项目结构
 
 ```
 forge/
-├── core/           # State, Rule Pack, Supervisor, Workflow
-├── agents/         # ProblemSolver, Compliance, Document
+├── core/           # State, Rule Pack, Supervisor, Workflow, Pipeline
+├── agents/         # 全部 Specialist Agents + Pydantic 输出模型
 ├── tools/          # Agent 工具集
 ├── prompts/        # Agent 提示词
-├── utils/          # 日志、环境变量、对话记录
-└── main.py         # CLI Demo 入口
-main.py             # 项目根入口（转发到 forge.main）
-rule_packs/         # Rule Pack JSON 定义
+├── utils/          # 日志、持久化、Agent 安全包装
+└── main.py         # CLI 入口
+web/
+├── app.py          # FastAPI 应用
+└── models.py       # API 请求/响应模型
+main.py             # 根入口（转发 CLI）
+rule_packs/         # Rule Pack JSON
 tests/              # 测试套件
-```
-
-## 运行测试
-
-```bash
-py -m pytest tests/ -q
+requirements.txt    # 依赖清单
 ```
 
 ## 环境变量
@@ -97,11 +113,33 @@ py -m pytest tests/ -q
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥（可选） |
 | `FORGE_LOG_LEVEL` | 日志级别：DEBUG / INFO / WARNING |
+| `FORGE_WEB_HOST` | Web 服务地址（默认 127.0.0.1） |
+| `FORGE_WEB_PORT` | Web 服务端口（默认 8000） |
 | `NO_COLOR` | 设置任意值禁用 CLI 颜色 |
+
+## 依赖版本说明
+
+`requirements.txt` 里写的是 **最低兼容版本**（`>=`），不是锁死在旧版：
+
+| 包 | 约束 | 说明 |
+|----|------|------|
+| langgraph | `>=1.0.0,<2.0` | 早期写的 `>=0.2.0` 只是下限过低；当前 PyPI 稳定版为 **1.2.x**，pip 会装最新 1.x |
+| 其他 | `>=x.y` | 同样表示「至少该版本」，安装时取满足条件的最新版 |
+
+查看 venv 内实际版本：`.venv\Scripts\pip.exe show langgraph`
 
 ## 技术栈
 
 - Python 3.11+
-- LangGraph + LangChain
+- LangGraph 1.x + LangChain
 - Pydantic v2
+- FastAPI + Uvicorn
 - DeepSeek API（OpenAI 兼容）
+
+## 后续开发方向
+
+- Web UI 前端（表单提交 + 结果可视化）
+- python-docx 导出整改/测评 Word 文档
+- 向量库持久化 Project Brain
+- 更多 Rule Pack 行业模块
+- 认证与多租户项目隔离

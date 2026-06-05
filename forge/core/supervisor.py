@@ -418,11 +418,18 @@ class Supervisor:
         if step == WorkflowStep.INITIAL:
             plan = self._build_workflow_plan(last_content, entry_agent=decision.next_agent)
             updates["workflow_plan"] = plan
+            stages = plan.get("stages", [])
+            log_pipeline_step(
+                logger,
+                run_id=state.get("run_id", "?"),
+                step="pipeline.start",
+                detail=f"scenario={plan.get('scenario')} | {' → '.join(stages)}",
+            )
             log_pipeline_step(
                 logger,
                 run_id=state.get("run_id", "?"),
                 step="supervisor.plan",
-                detail=plan.get("stages", []).__repr__(),
+                detail=str(stages),
             )
 
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.PROBLEM_SOLVER:

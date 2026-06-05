@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class CheckItem(BaseModel):
     """A single compliance check item within a module."""
@@ -27,7 +29,7 @@ class ModuleComplianceResult(BaseModel):
     summary: str = ""
 
 
-class ComplianceOutput(BaseModel):
+class ComplianceOutput(AgentOutputBase):
     """
     Structured multi-standard compliance report.
 
@@ -49,6 +51,3 @@ class ComplianceOutput(BaseModel):
     missing_items: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     next_action: str = ""
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)

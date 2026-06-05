@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class SecurityControlAdvice(BaseModel):
     """Configuration advice for a security control domain."""
@@ -24,7 +26,7 @@ class SecurityRiskItem(BaseModel):
     remediation: str = ""
 
 
-class SecurityOutput(BaseModel):
+class SecurityOutput(AgentOutputBase):
     """
     Structured 等保2.0 security advisory report.
 
@@ -45,6 +47,3 @@ class SecurityOutput(BaseModel):
     dengbao_rule_references: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)

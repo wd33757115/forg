@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class IncidentGuidance(BaseModel):
     """ITIL incident management guidance."""
@@ -24,7 +26,7 @@ class ChangeGuidance(BaseModel):
     rollback_plan: str = ""
 
 
-class OperationsOutput(BaseModel):
+class OperationsOutput(AgentOutputBase):
     """
     Structured ITIL/ISO20000 service management advisory report.
 
@@ -46,6 +48,3 @@ class OperationsOutput(BaseModel):
     itil_rule_references: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)

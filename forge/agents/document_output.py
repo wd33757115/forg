@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class GeneratedDocument(BaseModel):
     """A single generated project document (Markdown / structured text)."""
@@ -18,12 +20,9 @@ class GeneratedDocument(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
-class DocumentOutput(BaseModel):
+class DocumentOutput(AgentOutputBase):
     """Bundle of documents produced from solution + compliance context."""
 
     documents: list[GeneratedDocument] = Field(default_factory=list)
     summary: str = ""
     doc_types_generated: list[str] = Field(default_factory=list)
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)

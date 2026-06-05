@@ -1,3 +1,11 @@
 @echo off
-REM Use py launcher — Windows "python" may be the Store stub with no output.
-py -3 "%~dp0main.py" %*
+cd /d "%~dp0"
+
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" "%~dp0main.py" %*
+    exit /b %ERRORLEVEL%
+)
+
+echo [Forge] .venv not found. Run setup.bat first.
+echo         setup.bat
+exit /b 1

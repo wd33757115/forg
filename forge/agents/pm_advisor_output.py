@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from forge.agents.output_base import AgentOutputBase
+
 
 class RiskItem(BaseModel):
     """A risk surfaced for project-manager attention."""
@@ -25,7 +27,7 @@ class ActionItem(BaseModel):
     rationale: str = ""
 
 
-class PMAdvisorOutput(BaseModel):
+class PMAdvisorOutput(AgentOutputBase):
     """
     Project-manager advisory report synthesizing solution, compliance, and documents.
 
@@ -50,6 +52,3 @@ class PMAdvisorOutput(BaseModel):
         default="",
         description="Communication notes for leadership or customer",
     )
-
-    def to_display_json(self) -> str:
-        return self.model_dump_json(indent=2, ensure_ascii=False)
