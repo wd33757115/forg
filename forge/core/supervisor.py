@@ -52,8 +52,31 @@ def is_compliant(compliance_result: dict[str, Any] | None) -> bool:
     return compliance_result.get("overall_status") == "pass"
 
 
+def is_partial_compliant(compliance_result: dict[str, Any] | None) -> bool:
+    """Return True when compliance is partial (gaps but manageable risk)."""
+    if not compliance_result:
+        return False
+    if compliance_result.get("compliance_status") == "partial":
+        return True
+    return (
+        compliance_result.get("overall_status") == "gaps_found"
+        and compliance_result.get("risk_level") in ("low", "medium")
+    )
+
+
+def should_generate_documents(compliance_result: dict[str, Any] | None) -> bool:
+    """DocumentAgent runs when compliant or partial."""
+    return is_compliant(compliance_result) or is_partial_compliant(compliance_result)
+
+
 def is_non_compliant(compliance_result: dict[str, Any] | None) -> bool:
-    return not is_compliant(compliance_result)
+    """Fully non-compliant — not eligible for document generation."""
+    if not compliance_result:
+        return True
+    status = compliance_result.get("compliance_status")
+    if status == "non_compliant":
+        return True
+    return not is_compliant(compliance_result) and not is_partial_compliant(compliance_result)
 
 
 class Supervisor:
@@ -61,7 +84,7 @@ class Supervisor:
     Central orchestrator for the Forge agent graph.
 
     Closed-loop flow (problem-solving queries):
-        Supervisor → ProblemSolver → Compliance → (retry Supervisor → ProblemSolver)* → Finalize
+        Supervisor → ProblemSolver → Compliance → (retry)* → Document → Finalize
 
     Standalone flows (document / audit-only queries) route to a single specialist.
     """
@@ -178,10 +201,11 @@ class Supervisor:
         compliance = state.get("last_compliance_result") or {}
         retry_count = state.get("compliance_retry_count", 0)
 
-        if is_compliant(compliance):
+        if should_generate_documents(compliance):
+            label = compliance.get("compliance_status", "compliant")
             return SupervisorDecision(
-                next_agent=AgentName.FINALIZE,
-                reason="Solution is compliant — finalizing output",
+                next_agent=AgentName.DOCUMENT,
+                reason=f"Compliance {label} — generating project documents",
                 confidence=1.0,
             )
 
@@ -337,9 +361,10 @@ def supervisor_post_compliance_node(state: ProjectState) -> dict[str, Any]:
 
 
 def finalize_node(state: ProjectState) -> dict[str, Any]:
-    """Emit final combined output: ProblemSolver solution + Compliance result."""
+    """Emit final combined output: solution + compliance + generated documents."""
     solution = state.get("last_solution") or {}
     compliance = state.get("last_compliance_result") or {}
+    generated = state.get("generated_documents", [])
     retry_count = state.get("compliance_retry_count", 0)
 
     rec_id = solution.get("recommended_solution_id", "N/A")
@@ -349,12 +374,25 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     missing = compliance.get("missing_items", [])
     next_action = compliance.get("next_action", "")
 
+    doc_generation = "completed" if generated else "skipped"
+
+    final_output = {
+        "solution": solution,
+        "compliance": compliance,
+        "generated_documents": generated,
+        "compliance_retry_count": retry_count,
+        "document_generation": doc_generation,
+        "compliance_status": comp_status,
+        "risk_level": risk,
+    }
+
     lines = [
-        "# Forge 闭环执行结果",
+        "# Forge 完整执行结果",
         "",
         f"**合规重试次数**: {retry_count}",
         f"**最终合规状态**: {comp_status}",
         f"**风险等级**: {risk}",
+        f"**资料生成**: {doc_generation} ({len(generated)} 份)",
         "",
         "## ProblemSolver 推荐方案",
         f"方案 ID: `{rec_id}`",
@@ -366,8 +404,10 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
 
     if compliance.get("results"):
         for mod in compliance["results"]:
-            lines.append(f"- **{mod.get('module_name', mod.get('module'))}**: "
-                         f"{mod.get('status')} (score {mod.get('score')})")
+            lines.append(
+                f"- **{mod.get('module_name', mod.get('module'))}**: "
+                f"{mod.get('status')} (score {mod.get('score')})"
+            )
     else:
         lines.append(f"- 状态: {compliance.get('overall_status', 'N/A')}")
 
@@ -380,14 +420,18 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     if next_action:
         lines.extend(["", "## 下一步行动", next_action])
 
-    # Structured JSON appendix
-    if solution:
-        lines.extend(["", "## 方案 JSON", f"```json\n{_safe_json(solution)}\n```"])
+    if generated:
+        lines.extend(["", "## DocumentAgent 生成资料", ""])
+        for doc in generated:
+            lines.append(f"### [{doc.get('doc_type')}] {doc.get('title')}")
+            lines.append(doc.get("content", "")[:800])
+            lines.append("")
 
     return {
         "next_agent": AgentName.END.value,
         "workflow_step": None,
         "active_workflow": None,
+        "final_output": final_output,
         "messages": [AIMessage(content="\n".join(lines), name="forge_finalize")],
     }
 

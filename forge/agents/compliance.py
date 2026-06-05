@@ -201,7 +201,7 @@ class ComplianceAgent(BaseAgent):
             "findings": legacy.findings,
             "checked_at": checked_at,
         }
-        compliance_status = "compliant" if output.overall_status == "pass" else "non_compliant"
+        compliance_status = self._derive_compliance_status(output)
         structured = {
             **output.model_dump(),
             "id": legacy.id,
@@ -209,6 +209,15 @@ class ComplianceAgent(BaseAgent):
             "compliance_status": compliance_status,
         }
         return record, structured
+
+    @staticmethod
+    def _derive_compliance_status(output: ComplianceOutput) -> str:
+        """Map ComplianceOutput to compliant | partial | non_compliant."""
+        if output.overall_status == "pass":
+            return "compliant"
+        if output.overall_status == "gaps_found" and output.risk_level in ("low", "medium"):
+            return "partial"
+        return "non_compliant"
 
     def run_compliance(
         self,

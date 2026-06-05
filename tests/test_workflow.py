@@ -30,21 +30,31 @@ def test_closed_loop_problem_solver_compliance():
     assert result["last_solution"] is not None
     assert result["last_compliance_result"] is not None
     assert "recommended_solution_id" in result["last_solution"]
-    assert result["last_compliance_result"].get("compliance_status") in (
-        "compliant",
-        "non_compliant",
-    )
+    comp_status = result["last_compliance_result"].get("compliance_status")
+    assert comp_status in ("compliant", "partial", "non_compliant")
     assert result.get("compliance_retry_count", 0) <= 2
 
     finalize_msgs = [m for m in result["messages"] if getattr(m, "name", None) == "forge_finalize"]
     assert len(finalize_msgs) == 1
+    assert result.get("final_output") is not None
+
+    # DocumentAgent only runs when compliant or partial
+    if comp_status in ("compliant", "partial"):
+        assert len(result.get("generated_documents", [])) == 5
+        assert result["final_output"]["document_generation"] == "completed"
+    else:
+        assert result["final_output"]["document_generation"] == "skipped"
 
 
 def test_compliance_helpers():
+    from forge.core.supervisor import is_partial_compliant, should_generate_documents
+
     assert is_compliant({"compliance_status": "compliant"})
     assert is_compliant({"overall_status": "pass"})
+    assert is_partial_compliant({"compliance_status": "partial"})
+    assert should_generate_documents({"compliance_status": "partial"})
     assert is_non_compliant({"compliance_status": "non_compliant"})
-    assert is_non_compliant({"overall_status": "gaps_found"})
+    assert is_non_compliant({"overall_status": "critical", "compliance_status": "non_compliant"})
 
 
 def test_state_has_loop_fields():
@@ -52,6 +62,8 @@ def test_state_has_loop_fields():
     assert state["compliance_retry_count"] == 0
     assert state["last_solution"] is None
     assert state["last_compliance_result"] is None
+    assert state["generated_documents"] == []
+    assert state["final_output"] is None
 
 
 def test_run_forge_cli_helper():

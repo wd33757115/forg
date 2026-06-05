@@ -388,10 +388,14 @@ def build_compliance_output_from_checks(
 
     if critical_fails >= 2 or fail_total >= 6:
         overall_status, risk_level = "critical", "critical"
+        compliance_status = "non_compliant"
     elif fail_total > 0:
         overall_status, risk_level = "gaps_found", "high" if fail_total >= 3 else "medium"
+        # partial: gaps exist but risk is manageable — eligible for document generation
+        compliance_status = "partial" if risk_level in ("low", "medium") else "non_compliant"
     else:
         overall_status, risk_level = "pass", "low"
+        compliance_status = "compliant"
 
     if context and "方案" in context:
         recommendations.append("对 ProblemSolver 推荐方案进行变更影响评估后再实施")
@@ -405,6 +409,7 @@ def build_compliance_output_from_checks(
     return {
         "overall_status": overall_status,
         "risk_level": risk_level,
+        "compliance_status": compliance_status,
         "protection_level": raw.get("protection_level"),
         "results": module_results,
         "missing_items": missing,

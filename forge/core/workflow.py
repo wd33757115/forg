@@ -22,11 +22,11 @@ def build_workflow() -> StateGraph:
 
     Problem-solving flow:
         supervisor → problem_solver → compliance → supervisor_post_compliance
-            → (retry) problem_solver | finalize → END
+            → (retry) problem_solver | document → finalize → END
 
     Standalone flows:
         supervisor → compliance → finalize → END
-        supervisor → document → END
+        supervisor → document → finalize → END
     """
     from forge.agents.compliance import compliance_node
     from forge.agents.document import document_node
@@ -77,18 +77,20 @@ def build_workflow() -> StateGraph:
         },
     )
 
-    # Post-compliance routing → ProblemSolver retry or Finalize
+    # Post-compliance routing → ProblemSolver retry | Document | Finalize
     graph.add_conditional_edges(
         "supervisor_post_compliance",
         route_after_supervisor,
         {
             AgentName.PROBLEM_SOLVER: AgentName.PROBLEM_SOLVER,
+            AgentName.DOCUMENT: AgentName.DOCUMENT,
             AgentName.FINALIZE: AgentName.FINALIZE,
             AgentName.END: END,
         },
     )
 
-    graph.add_edge(AgentName.DOCUMENT, END)
+    # Document → Finalize (always assemble final_output)
+    graph.add_edge(AgentName.DOCUMENT, AgentName.FINALIZE)
     graph.add_edge(AgentName.FINALIZE, END)
 
     return graph

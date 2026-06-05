@@ -1,57 +1,107 @@
-"""DocumentAgent — generate project documents aligned with standards."""
+"""DocumentAgent — generate project documents from solution + compliance."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from forge.agents.base import BaseAgent
+from forge.agents.document_output import DocumentOutput
 from forge.core.state import ProjectState
-from forge.prompts.document import DOCUMENT_SYSTEM
-from forge.tools.document_generator import generate_document_outline
+from forge.prompts.document_prompt import DOCUMENT_SYSTEM
+from forge.tools.document_tools import generate_document_bundle
 from forge.utils.llm import invoke_llm
 
 
 class DocumentAgent(BaseAgent):
     """
-    Phase 1 stub: produces structured document outlines.
+    Generate structured project documents based on ProblemSolver solution
+    and ComplianceAgent results.
 
-    Phase 2 will generate full deliverables with template + Rule Pack alignment.
+    Produces Markdown documents (upgradeable to python-docx templates later):
+    - 整改方案 / 技术方案
+    - 等保整改记录
+    - ITIL 事件/问题记录
+    - 变更申请记录
     """
 
     name = "document"
 
-    def run(self, state: ProjectState) -> dict[str, Any]:
-        messages = state.get("messages", [])
-        request = ""
-        if messages:
-            request = getattr(messages[-1], "content", str(messages[-1]))
+    def generate(
+        self,
+        state: ProjectState,
+        *,
+        solution: dict[str, Any] | None = None,
+        compliance: dict[str, Any] | None = None,
+    ) -> DocumentOutput:
+        """Core generation logic — uses solution/compliance from state or args."""
+        solution = solution or state.get("last_solution") or {}
+        compliance = compliance or state.get("last_compliance_result") or {}
 
-        outline = generate_document_outline(request, state)
-
-        doc_ref = {
-            "id": f"doc-{state['project_id']}-{len(state.get('documents', []))}",
-            "title": outline.title,
-            "doc_type": outline.doc_type,
-            "path": None,
-            "metadata": {"sections": outline.sections, "status": "outline"},
-        }
-
-        sections_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(outline.sections))
-        heuristic_body = (
-            f"**Document**: {outline.title} ({outline.doc_type})\n\n**Outline**:\n{sections_text}"
+        bundle = generate_document_bundle(
+            project_id=state.get("project_id", "unknown"),
+            phase=state.get("current_phase", "execution"),
+            solution=solution,
+            compliance=compliance,
         )
-        llm_body = invoke_llm(
+
+        # Optional LLM enrichment of summary
+        llm_summary = invoke_llm(
             DOCUMENT_SYSTEM,
-            f"Request: {request}\n"
-            f"Project phase: {state.get('current_phase')}\n"
-            f"Proposed outline: {outline.sections}\n\n"
-            "Expand the outline with section descriptions and compliance references.",
+            f"方案: {solution.get('problem_analysis', '')[:500]}\n"
+            f"合规: {compliance.get('compliance_status', '')} — "
+            f"{len(compliance.get('missing_items', []))} 项缺口\n"
+            "用一句话总结已生成资料包的价值。",
         )
-        body = llm_body if llm_body else heuristic_body
+        if llm_summary:
+            bundle.summary = llm_summary
+
+        return bundle
+
+    def _format_response(self, output: DocumentOutput) -> str:
+        lines = [
+            "## 资料生成完成",
+            output.summary,
+            "",
+            f"共 **{len(output.documents)}** 份文档：",
+        ]
+        for doc in output.documents:
+            lines.append(f"- [{doc.doc_type}] **{doc.title}** (`{doc.doc_id}`)")
+            preview = doc.content[:200].replace("\n", " ")
+            lines.append(f"  > {preview}…")
+        return "\n".join(lines)
+
+    def run(self, state: ProjectState) -> dict[str, Any]:
+        """LangGraph node entrypoint."""
+        output = self.generate(state)
+
+        generated_records = [
+            {
+                "doc_id": doc.doc_id,
+                "doc_type": doc.doc_type,
+                "title": doc.title,
+                "format": doc.format,
+                "content": doc.content,
+                "metadata": doc.metadata,
+            }
+            for doc in output.documents
+        ]
+
+        # Legacy documents list (title refs for compliance checks)
+        doc_refs = [
+            {
+                "id": doc.doc_id,
+                "title": doc.title,
+                "doc_type": doc.doc_type,
+                "path": None,
+                "metadata": {"format": doc.format, "status": "generated"},
+            }
+            for doc in output.documents
+        ]
 
         return {
-            **self.reply(f"{DOCUMENT_SYSTEM}\n\n{body}"),
-            "documents": state.get("documents", []) + [doc_ref],
+            **self.reply(self._format_response(output)),
+            "generated_documents": state.get("generated_documents", []) + generated_records,
+            "documents": state.get("documents", []) + doc_refs,
             "pending_tasks": [
                 t
                 for t in state.get("pending_tasks", [])

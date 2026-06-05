@@ -124,10 +124,12 @@ class ProjectState(TypedDict):
     messages: Annotated[list, add_messages]
     pending_tasks: list[dict[str, Any]]
     rule_pack: dict[str, Any] | None
-    # Closed-loop control (ProblemSolver ↔ Compliance)
+    # Closed-loop control (ProblemSolver ↔ Compliance ↔ Document)
     compliance_retry_count: int
     last_solution: dict[str, Any] | None
     last_compliance_result: dict[str, Any] | None
+    generated_documents: list[dict[str, Any]]
+    final_output: dict[str, Any] | None
     active_workflow: str | None
     workflow_step: str | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
@@ -157,6 +159,8 @@ def create_initial_state(
         compliance_retry_count=0,
         last_solution=None,
         last_compliance_result=None,
+        generated_documents=[],
+        final_output=None,
         active_workflow=None,
         workflow_step=None,
         next_agent=None,
