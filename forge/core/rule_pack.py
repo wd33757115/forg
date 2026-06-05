@@ -1,22 +1,23 @@
-"""Rule Pack loader — structured industry rules as executable knowledge."""
+"""Rule Pack models — structured industry rules as executable knowledge."""
 
 from __future__ import annotations
 
 import json
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-# Default location: forge/rule_packs/
-RULE_PACKS_DIR = Path(__file__).resolve().parent.parent / "rule_packs"
+# Project root: forge/core/rule_pack.py -> forge -> <root>
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_RULE_PACKS_DIR = PROJECT_ROOT / "rule_packs"
+DEFAULT_PACK_FILE = "system_integration_v1.json"
 
-AVAILABLE_MODULES = ("base_si", "dengbao_2.0", "itil_iso20000")
+KNOWN_MODULES = frozenset({"base_si", "dengbao_2.0", "itil_iso20000"})
 
 
 class Rule(BaseModel):
-    """A single executable rule within a Rule Pack."""
+    """A single executable rule within a module."""
 
     id: str
     title: str
@@ -27,8 +28,8 @@ class Rule(BaseModel):
     references: list[str] = Field(default_factory=list)
 
 
-class RulePack(BaseModel):
-    """A collection of rules for one industry/standard module."""
+class RuleModule(BaseModel):
+    """One industry/standard module (e.g. base_si, dengbao_2.0)."""
 
     module_id: str
     name: str
@@ -45,47 +46,94 @@ class RulePack(BaseModel):
     def rules_by_category(self, category: str) -> list[Rule]:
         return [r for r in self.rules if r.category == category]
 
-
-class RulePackLoader:
-    """Loads Rule Pack definitions from JSON files on disk."""
-
-    def __init__(self, packs_dir: Path | None = None) -> None:
-        self.packs_dir = packs_dir or RULE_PACKS_DIR
-
-    def load_module(self, module_id: str) -> RulePack:
-        path = self.packs_dir / f"{module_id}.json"
-        if not path.exists():
-            raise FileNotFoundError(f"Rule Pack not found: {path}")
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return RulePack.model_validate(data)
-
-    def load_modules(self, module_ids: list[str]) -> dict[str, RulePack]:
-        return {mid: self.load_module(mid) for mid in module_ids}
-
-    def list_available(self) -> list[str]:
-        return sorted(p.stem for p in self.packs_dir.glob("*.json"))
+    def rule_count(self) -> int:
+        return len(self.rules)
 
 
-@lru_cache(maxsize=1)
-def get_rule_pack(
-    modules: tuple[str, ...] = AVAILABLE_MODULES,
-    packs_dir: str | None = None,
-) -> dict[str, RulePack]:
+class RulePack(BaseModel):
     """
-    Load and cache Rule Packs for the given modules.
+    A bundled Rule Pack containing multiple modules.
 
-    Returns a dict keyed by module_id.
+    Loaded from a single JSON file (e.g. rule_packs/system_integration_v1.json).
     """
-    loader = RulePackLoader(Path(packs_dir) if packs_dir else None)
-    return loader.load_modules(list(modules))
+
+    pack_id: str
+    name: str
+    version: str
+    description: str = ""
+    enabled_modules: list[str] = Field(default_factory=list)
+    modules: dict[str, RuleModule] = Field(default_factory=dict)
+
+    @field_validator("enabled_modules")
+    @classmethod
+    def _validate_enabled_module_names(cls, modules: list[str]) -> list[str]:
+        for name in modules:
+            if name not in KNOWN_MODULES:
+                raise ValueError(f"Unknown module in enabled_modules: {name}")
+        return modules
+
+    @classmethod
+    def load_rule_pack(cls, path: str) -> RulePack:
+        """Load a Rule Pack bundle from a JSON file path."""
+        file_path = Path(path)
+        if not file_path.is_absolute():
+            # Resolve relative to project rule_packs/ dir first, then cwd
+            candidate = DEFAULT_RULE_PACKS_DIR / file_path
+            if candidate.exists():
+                file_path = candidate
+            elif not file_path.exists():
+                file_path = Path.cwd() / path
+
+        if not file_path.exists():
+            raise FileNotFoundError(f"Rule Pack file not found: {path}")
+
+        data = json.loads(file_path.read_text(encoding="utf-8"))
+        return cls.model_validate(data)
+
+    def get_module(self, module_name: str) -> RuleModule | None:
+        """Return a module by name, or None if not present."""
+        return self.modules.get(module_name)
+
+    def get_enabled_modules(self) -> list[str]:
+        """Return the list of enabled module names for this pack."""
+        return list(self.enabled_modules)
+
+    def validate_module(self, module_name: str) -> bool:
+        """
+        Check whether a module is enabled, present, and has at least one rule.
+
+        A valid module must be listed in enabled_modules and exist in modules
+        with a non-empty rules list.
+        """
+        if module_name not in self.enabled_modules:
+            return False
+        module = self.modules.get(module_name)
+        if module is None:
+            return False
+        return module.rule_count() > 0
+
+    def get_enabled_module_map(self) -> dict[str, RuleModule]:
+        """Return only enabled modules that pass validation."""
+        return {
+            name: module
+            for name in self.get_enabled_modules()
+            if (module := self.get_module(name)) is not None and self.validate_module(name)
+        }
+
+    def total_rule_count(self) -> int:
+        return sum(m.rule_count() for m in self.get_enabled_module_map().values())
+
+    def to_state_dict(self) -> dict[str, Any]:
+        """Serialize for ProjectState.rule_pack field."""
+        return self.model_dump()
 
 
-def merge_rules(packs: dict[str, RulePack], category: str | None = None) -> list[Rule]:
-    """Flatten rules from multiple packs, optionally filtered by category."""
+def merge_rules(modules: dict[str, RuleModule], category: str | None = None) -> list[Rule]:
+    """Flatten rules from multiple modules, optionally filtered by category."""
     result: list[Rule] = []
-    for pack in packs.values():
+    for module in modules.values():
         if category:
-            result.extend(pack.rules_by_category(category))
+            result.extend(module.rules_by_category(category))
         else:
-            result.extend(pack.rules)
+            result.extend(module.rules)
     return result

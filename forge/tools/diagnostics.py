@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from forge.core.rule_pack import RulePack
+from forge.core.rule_pack import RuleModule
 
 
 class DiagnosisResult(BaseModel):
@@ -47,7 +47,7 @@ _SYMPTOM_PATTERNS: list[tuple[list[str], str, list[str], list[str]]] = [
 ]
 
 
-def analyze_symptoms(text: str, packs: dict[str, RulePack]) -> DiagnosisResult:
+def analyze_symptoms(text: str, packs: dict[str, RuleModule]) -> DiagnosisResult:
     """Rule-based symptom analysis (Phase 1). LLM replaces this in Phase 2."""
     lowered = text.lower()
 

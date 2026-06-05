@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from forge.agents.base import BaseAgent
-from forge.core.rule_pack import get_rule_pack
+from forge.core.rule_pack_loader import get_rule_pack
 from forge.core.state import ProjectState
 from forge.prompts.problem_solver import PROBLEM_SOLVER_SYSTEM
 from forge.tools.diagnostics import analyze_symptoms

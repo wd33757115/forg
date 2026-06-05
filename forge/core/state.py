@@ -8,6 +8,24 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from forge.core.rule_pack import Rule, RuleModule, RulePack
+
+# Re-export Rule Pack models for consumers that import from state
+__all__ = [
+    "ComplianceRecord",
+    "ComplianceResult",
+    "DocumentRef",
+    "KnowledgeEntry",
+    "PendingTask",
+    "ProjectState",
+    "Rule",
+    "RuleModule",
+    "RulePack",
+    "RulePackState",
+    "WBSItem",
+    "create_initial_state",
+]
+
 
 class WBSItem(BaseModel):
     """Work Breakdown Structure node."""
@@ -31,7 +49,7 @@ class DocumentRef(BaseModel):
 
 
 class ComplianceRecord(BaseModel):
-    """A compliance check or audit event."""
+    """A compliance check or audit event (legacy field: compliance_history)."""
 
     id: str
     standard: str
@@ -39,6 +57,27 @@ class ComplianceRecord(BaseModel):
     status: str
     findings: list[str] = Field(default_factory=list)
     checked_at: str | None = None
+
+
+class ComplianceResult(BaseModel):
+    """Structured compliance scan result stored in ProjectState.compliance_results."""
+
+    id: str
+    pack_id: str
+    modules: list[str] = Field(default_factory=list)
+    status: str
+    findings: list[str] = Field(default_factory=list)
+    checked_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RulePackState(BaseModel):
+    """Snapshot of the active Rule Pack attached to a project session."""
+
+    pack_id: str
+    name: str
+    version: str
+    enabled_modules: list[str] = Field(default_factory=list)
 
 
 class KnowledgeEntry(BaseModel):
@@ -76,9 +115,11 @@ class ProjectState(TypedDict):
     wbs: dict[str, Any]
     documents: list[dict[str, Any]]
     compliance_history: list[dict[str, Any]]
+    compliance_results: list[dict[str, Any]]
     knowledge_base: list[dict[str, Any]]
     messages: Annotated[list, add_messages]
     pending_tasks: list[dict[str, Any]]
+    rule_pack: dict[str, Any] | None
     # Supervisor routing hint — set by supervisor, consumed by conditional edges
     next_agent: str | None
 
@@ -88,6 +129,7 @@ def create_initial_state(
     *,
     current_phase: str = "initiation",
     enabled_modules: list[str] | None = None,
+    rule_pack: dict[str, Any] | None = None,
 ) -> ProjectState:
     """Create a fresh ProjectState for a new project session."""
     return ProjectState(
@@ -97,8 +139,10 @@ def create_initial_state(
         wbs={},
         documents=[],
         compliance_history=[],
+        compliance_results=[],
         knowledge_base=[],
         messages=[],
         pending_tasks=[],
+        rule_pack=rule_pack,
         next_agent=None,
     )

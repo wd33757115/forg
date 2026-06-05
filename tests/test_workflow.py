@@ -12,6 +12,9 @@ def test_supervisor_routes_to_compliance():
     result = app.invoke(state)
     assert result["next_agent"] == "compliance"
     assert len(result["compliance_history"]) == 1
+    assert len(result["compliance_results"]) == 1
+    assert result["rule_pack"] is not None
+    assert result["rule_pack"]["pack_id"] == "system_integration_v1"
 
 
 def test_supervisor_routes_to_problem_solver():

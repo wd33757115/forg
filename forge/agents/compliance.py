@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from forge.agents.base import BaseAgent
-from forge.core.rule_pack import get_rule_pack
-from forge.core.state import ProjectState
+from forge.core.rule_pack_loader import get_rule_pack
+from forge.core.state import ComplianceResult, ProjectState
 from forge.prompts.compliance import COMPLIANCE_SYSTEM
 from forge.tools.compliance_checker import run_compliance_scan
 from forge.utils.llm import invoke_llm
@@ -26,13 +26,22 @@ class ComplianceAgent(BaseAgent):
         packs = get_rule_pack(modules)
         scan = run_compliance_scan(state, packs)
 
+        pack_meta = state.get("rule_pack") or {}
+        result = ComplianceResult(
+            id=f"cmp-{state['project_id']}-{len(state.get('compliance_results', []))}",
+            pack_id=pack_meta.get("pack_id", "unknown"),
+            modules=list(modules),
+            status=scan.overall_status,
+            findings=scan.findings,
+            checked_at=scan.checked_at,
+        )
         record = {
-            "id": f"cmp-{state['project_id']}-{len(state.get('compliance_history', []))}",
+            "id": result.id,
             "standard": ",".join(modules),
             "rule_id": "batch_scan",
-            "status": scan.overall_status,
-            "findings": scan.findings,
-            "checked_at": scan.checked_at,
+            "status": result.status,
+            "findings": result.findings,
+            "checked_at": result.checked_at,
         }
 
         findings_text = "\n".join(f"- {f}" for f in scan.findings) if scan.findings else "- None"
@@ -52,6 +61,8 @@ class ComplianceAgent(BaseAgent):
         return {
             **self.reply(f"{COMPLIANCE_SYSTEM}\n\n{body}"),
             "compliance_history": state.get("compliance_history", []) + [record],
+            "compliance_results": state.get("compliance_results", [])
+            + [result.model_dump()],
             "pending_tasks": [
                 t
                 for t in state.get("pending_tasks", [])

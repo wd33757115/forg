@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage
 
-from forge.core import compile_workflow, create_initial_state, get_rule_pack
+from forge.core import compile_workflow, create_initial_state
+from forge.core.rule_pack_loader import RulePackLoader
 from forge.utils.env import load_dotenv
 from forge.utils.llm import get_deepseek_api_key
 from forge.utils.logging import get_logger
@@ -19,11 +20,13 @@ def main() -> None:
     else:
         logger.info("No API key — running in heuristic mode (set DEEPSEEK_API_KEY in .env)")
 
-    # --- 1. Load Rule Packs ---
-    packs = get_rule_pack()
-    logger.info("Loaded Rule Packs: %s", list(packs.keys()))
-    for mid, pack in packs.items():
-        logger.info("  [%s] %s — %d rules", mid, pack.name, len(pack.rules))
+    # --- 1. Load Rule Pack bundle ---
+    bundle = RulePackLoader.get_instance().load_default()
+    logger.info("Loaded Rule Pack: %s v%s", bundle.name, bundle.version)
+    for mid in bundle.get_enabled_modules():
+        module = bundle.get_module(mid)
+        if module:
+            logger.info("  [%s] %s — %d rules", mid, module.name, module.rule_count())
 
     # --- 2. Initialize project state ---
     state = create_initial_state(

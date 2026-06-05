@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from forge.core.rule_pack import RulePack
+from forge.core.rule_pack import RuleModule
 from forge.core.state import ProjectState
 
 
@@ -16,7 +16,7 @@ class ComplianceScanResult(BaseModel):
     checked_at: str = ""
 
 
-def run_compliance_scan(state: ProjectState, packs: dict[str, RulePack]) -> ComplianceScanResult:
+def run_compliance_scan(state: ProjectState, packs: dict[str, RuleModule]) -> ComplianceScanResult:
     """
     Scan project state against enabled Rule Packs.
 

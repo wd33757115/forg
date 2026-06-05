@@ -38,7 +38,8 @@ forge/
 ├── prompts/        # Agent prompt templates
 ├── tools/          # Agent tools
 ├── utils/          # Shared utilities
-└── rule_packs/     # JSON rule pack definitions
+rule_packs/         # Bundled Rule Pack JSON (project root)
+└── system_integration_v1.json
 ```
 
 ## Vision
