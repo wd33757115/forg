@@ -1,0 +1,25 @@
+{
+  "scenario": "security",
+  "source": "reports/llm_baseline/w1-2_security_result.json",
+  "run_id": "7061e2ae",
+  "generated_at": "2026-06-07T14:23:34.309218+00:00",
+  "reviewer": "rubric-assisted (W1-3)",
+  "dimensions": {
+    "problem_type_correct": 5,
+    "rule_pack_relevance": 5,
+    "reasoning_followable": 5,
+    "solution_actionable": 5,
+    "demo_persuasion": 5
+  },
+  "notes": {
+    "problem_type_correct": "problem_type=security 与场景一致",
+    "rule_pack_relevance": "8 条引用，8 条来自调研",
+    "reasoning_followable": "reasoning 含 3 个 rule_id",
+    "solution_actionable": "5 条 next_actions + 推荐方案有 approach",
+    "demo_persuasion": "各维度均优，可对外演示"
+  },
+  "average": 5.0,
+  "pass_threshold_3_5": true,
+  "compliance_status": "compliant",
+  "rule_pack_ref_count": 8
+}

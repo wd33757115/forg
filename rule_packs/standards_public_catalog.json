@@ -1,0 +1,204 @@
+{
+  "catalog_version": "1.0.0",
+  "description": "公开标准制度引用目录（仅条款号、标准名称与公开摘要，不含受版权保护的全文）",
+  "sources": {
+    "dengbao_2.0": {
+      "primary_standard": "GB/T 22239-2019",
+      "title": "信息安全技术 网络安全等级保护基本要求",
+      "evaluation_standard": "GB/T 28448-2019",
+      "evaluation_title": "信息安全技术 网络安全等级保护测评要求",
+      "issuer": "国家市场监督管理总局、国家标准化管理委员会",
+      "public_url": "https://openstd.samr.gov.cn/bzgk/gb/newGbInfo?hcno=51F43C8C0C8E4B3E9E5E5E5E5E5E5E5E"
+    },
+    "itil_iso20000": {
+      "itil_framework": "ITIL 4",
+      "itil_publisher": "AXELOS",
+      "iso_standard": "ISO/IEC 20000-1:2018",
+      "iso_title": "信息技术 服务管理 第1部分：服务管理体系要求",
+      "public_url_itil": "https://www.axelos.com/best-practice-solutions/itil",
+      "public_url_iso": "https://www.iso.org/standard/70636.html"
+    }
+  },
+  "rules": {
+    "db-acs-001": {
+      "citations": [
+        "GB/T 22239-2019 8.1.4.1 身份鉴别（安全计算环境）",
+        "GB/T 28448-2019 8.1.4.1 身份鉴别测评实施"
+      ],
+      "public_summary": "应对登录用户进行身份标识和鉴别，身份标识具有唯一性。"
+    },
+    "db-acs-002": {
+      "citations": [
+        "GB/T 22239-2019 8.1.4.2 访问控制",
+        "GB/T 28448-2019 8.1.4.2 访问控制测评实施"
+      ],
+      "public_summary": "应授予管理用户所需的最小权限，实现权限分离。"
+    },
+    "db-aud-001": {
+      "citations": [
+        "GB/T 22239-2019 8.1.4.3 安全审计",
+        "GB/T 28448-2019 8.1.4.3 安全审计测评实施"
+      ],
+      "public_summary": "应启用安全审计功能，审计覆盖到每个用户。"
+    },
+    "db-bnd-001": {
+      "citations": [
+        "GB/T 22239-2019 8.1.2.1 边界防护",
+        "GB/T 28448-2019 8.1.2.1 边界防护测评实施"
+      ],
+      "public_summary": "应保证跨越边界的访问和数据流通过受控接口进行通信。"
+    },
+    "db-net-002": {
+      "citations": ["GB/T 22239-2019 8.1.2.2 入侵防范"],
+      "public_summary": "应在关键网络节点处检测、防止或限制外部发起的网络攻击。"
+    },
+    "db-net-003": {
+      "citations": ["GB/T 22239-2019 8.1.2.3 恶意代码防范"],
+      "public_summary": "应在网络边界处对恶意代码进行检测和清除。"
+    },
+    "db-net-004": {
+      "citations": ["GB/T 22239-2019 8.1.2.4 通信传输保密性"],
+      "public_summary": "应采用密码技术保证通信过程中数据的保密性。"
+    },
+    "db-hst-001": {
+      "citations": ["GB/T 22239-2019 8.1.4.4 恶意代码防范（主机）"],
+      "public_summary": "应安装防恶意代码软件并及时更新。"
+    },
+    "db-hst-002": {
+      "citations": ["GB/T 22239-2019 8.1.4.5 a) 资源控制"],
+      "public_summary": "应限制单个用户或进程对系统资源的最大使用限度。"
+    },
+    "db-hst-003": {
+      "citations": ["GB/T 22239-2019 8.1.4.5 b) 漏洞和补丁管理"],
+      "public_summary": "应建立漏洞扫描与补丁更新机制。"
+    },
+    "db-app-001": {
+      "citations": ["GB/T 22239-2019 8.2.1.1 身份鉴别（应用）"],
+      "public_summary": "应用系统应实现用户身份鉴别，支持失败处理与会话超时。"
+    },
+    "db-app-002": {
+      "citations": ["GB/T 22239-2019 8.2.1.2 访问控制（应用）"],
+      "public_summary": "应用应实现基于角色或属性的访问控制。"
+    },
+    "db-app-003": {
+      "citations": ["GB/T 22239-2019 8.2.1.3 安全审计（应用）"],
+      "public_summary": "应用应记录用户登录、业务操作、配置变更等安全相关事件。"
+    },
+    "db-dat-001": {
+      "citations": ["GB/T 22239-2019 8.1.4.5 a) 数据备份与恢复"],
+      "public_summary": "应提供重要数据的本地数据备份与恢复功能。"
+    },
+    "db-dat-002": {
+      "citations": ["GB/T 22239-2019 8.1.4.5 c) 数据保密性"],
+      "public_summary": "应采用密码技术保证重要数据在传输和存储过程中的保密性。"
+    },
+    "db-dat-003": {
+      "citations": ["GB/T 22239-2019 8.1.4.5 d) 数据完整性"],
+      "public_summary": "应采用校验技术或密码技术保证重要数据完整性。"
+    },
+    "db-mgt-001": {
+      "citations": ["GB/T 22239-2019 8.2.1 安全管理制度"],
+      "public_summary": "应建立网络安全工作的总体方针和安全策略。"
+    },
+    "db-mgt-002": {
+      "citations": ["GB/T 22239-2019 8.2.2 安全管理机构与人员"],
+      "public_summary": "应设立安全管理岗位，配备安全管理员。"
+    },
+    "db-mgt-003": {
+      "citations": ["GB/T 22239-2019 8.2.3 安全建设管理"],
+      "public_summary": "应建立安全建设、日常运维、应急响应与变更管理制度。"
+    },
+    "db-mgt-004": {
+      "citations": ["GB/T 22239-2019 8.2.4 安全运维管理"],
+      "public_summary": "应制定网络安全事件应急预案并开展演练。"
+    },
+    "itil-inc-001": {
+      "citations": [
+        "ITIL 4 Practice: Incident Management",
+        "ISO/IEC 20000-1:2018 8.6 服务交付 — 事件管理"
+      ],
+      "public_summary": "记录、分类、响应并恢复服务中断或质量下降。"
+    },
+    "itil-inc-002": {
+      "citations": ["ITIL 4 Practice: Incident Management — Major incident"],
+      "public_summary": "重大事件须按升级矩阵通知相关方并记录时间线。"
+    },
+    "itil-prb-001": {
+      "citations": [
+        "ITIL 4 Practice: Problem Management",
+        "ISO/IEC 20000-1:2018 8.7 服务交付 — 问题管理"
+      ],
+      "public_summary": "对反复发生或具有潜在根因的事件进行根因分析。"
+    },
+    "itil-prb-002": {
+      "citations": ["ITIL 4 Practice: Problem Management — Known error"],
+      "public_summary": "已知错误应登记临时规避措施直至永久修复。"
+    },
+    "itil-chg-001": {
+      "citations": [
+        "ITIL 4 Practice: Change Enablement",
+        "ISO/IEC 20000-1:2018 8.5 服务交付 — 变更管理"
+      ],
+      "public_summary": "所有变更须评估、授权和实施控制。"
+    },
+    "itil-chg-002": {
+      "citations": ["ITIL 4 Practice: Change Enablement — CAB"],
+      "public_summary": "正常/紧急变更应通过 CAB 或预授权流程评审。"
+    },
+    "itil-cfg-001": {
+      "citations": ["ITIL 4 Practice: Service Configuration Management"],
+      "public_summary": "服务资产和配置项须在 CMDB 中识别、记录并受控。"
+    },
+    "itil-slm-001": {
+      "citations": [
+        "ITIL 4 Practice: Service Level Management",
+        "ISO/IEC 20000-1:2018 8.3 服务策划 — 服务级别管理"
+      ],
+      "public_summary": "定义、协商和监控 SLA/OLA/UC。"
+    },
+    "itil-rel-001": {
+      "citations": ["ITIL 4 Practice: Release Management"],
+      "public_summary": "发布须经测试验证、审批与回退验证。"
+    },
+    "itil-ava-001": {
+      "citations": ["ITIL 4 Practice: Availability Management"],
+      "public_summary": "定义服务可用性目标并持续监控报告。"
+    },
+    "itil-cap-001": {
+      "citations": ["ITIL 4 Practice: Capacity and Performance Management"],
+      "public_summary": "监控容量趋势，在瓶颈影响 SLA 前采取措施。"
+    },
+    "itil-km-001": {
+      "citations": ["ITIL 4 Practice: Knowledge Management"],
+      "public_summary": "解决方案应沉淀到知识库供服务台检索。"
+    },
+    "itil-sdm-001": {
+      "citations": [
+        "ITIL 4 Practice: Service Desk",
+        "ISO/IEC 20000-1:2018 8.6 服务交付"
+      ],
+      "public_summary": "统一服务台入口，记录并分派服务请求与事件。"
+    },
+    "itil-con-001": {
+      "citations": [
+        "ITIL 4 Practice: Continual Improvement",
+        "ISO/IEC 20000-1:2018 10 改进"
+      ],
+      "public_summary": "基于 KPI 与 CSF 定期评审并制定改进计划。"
+    },
+    "si-sec-001": {
+      "citations": [
+        "GB/T 22239-2019 安全通用要求（集成场景）",
+        "系统集成安全设计规范（行业实践）"
+      ],
+      "public_summary": "集成方案须包含身份认证、传输加密、日志审计。"
+    },
+    "si-ops-001": {
+      "citations": [
+        "ITIL 4 Practice: Service Transition",
+        "ISO/IEC 20000-1:2018 8.4 服务交付 — 服务连续性"
+      ],
+      "public_summary": "验收前完成运维文档移交和知识转移。"
+    }
+  }
+}

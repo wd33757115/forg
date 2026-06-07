@@ -53,6 +53,18 @@ def _canonical_rule_id(item: dict[str, Any]) -> str:
     return rid
 
 
+def _severity_for_item(item: dict[str, Any]) -> str:
+    status = item.get("status", "")
+    category = str(item.get("category", ""))
+    if status == "warning":
+        return "low"
+    if "dengbao" in category and status == "fail":
+        return "high"
+    if status == "fail":
+        return "medium"
+    return "low"
+
+
 def _item_in_failed_set(item: dict[str, Any], check_mode: str) -> bool:
     """Filter check items into failed_items per check_mode (strict / advisory / lenient)."""
     status = item.get("status", "")
@@ -95,6 +107,7 @@ def build_compliance_explainability(
                         title=item.title,
                         description=item.detail or item.title,
                         status=item.status,
+                        severity=_severity_for_item(raw),
                     )
                 )
 

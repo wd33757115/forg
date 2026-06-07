@@ -45,6 +45,20 @@ _TYPE_KEYWORD_RULES: dict[ProblemType, list[tuple[str, list[str]]]] = {
 }
 
 
+def classify_reference_source(ref: RulePackReference) -> str:
+    """Infer reference provenance for W1-4 metrics."""
+    if ref.reference_source:
+        return ref.reference_source
+    rel = ref.relevance or ""
+    if "关键词" in rel:
+        return "keyword"
+    if "类型默认" in rel or "默认引用" in rel:
+        return "minimum_pad"
+    if "调研" in rel:
+        return "research"
+    return "scored"
+
+
 def _append_ref(
     refs: list[RulePackReference],
     seen: set[str],
@@ -53,6 +67,7 @@ def _append_ref(
     module: str,
     pack: RulePack,
     relevance: str = "",
+    reference_source: str = "",
 ) -> None:
     if rule_id in seen:
         return
@@ -69,6 +84,7 @@ def _append_ref(
             module=module,
             title=rule.title,
             relevance=relevance or rule.description[:120],
+            reference_source=reference_source,
         )
     )
 
@@ -92,7 +108,15 @@ def fetch_relevant_rules(
         if keyword.lower() in lower:
             for rid in rule_ids:
                 mod = _module_for_rule_id(rid)
-                _append_ref(refs, seen, rule_id=rid, module=mod, pack=pack, relevance=f"关键词「{keyword}」关联")
+                _append_ref(
+                    refs,
+                    seen,
+                    rule_id=rid,
+                    module=mod,
+                    pack=pack,
+                    relevance=f"关键词「{keyword}」关联",
+                    reference_source="keyword",
+                )
 
     # 2) Score rules in priority modules
     for mod_id in modules:
@@ -120,6 +144,7 @@ def fetch_relevant_rules(
                 rule_id=rule.id,
                 module=mod_id,
                 pack=pack,
+                reference_source="scored",
             )
         if len(refs) >= limit:
             break
@@ -142,7 +167,15 @@ def fetch_relevant_rules(
     for rule_id, mod_id in defaults.get(problem_type, defaults["technical"]):
         if len(refs) >= minimum:
             break
-        _append_ref(refs, seen, rule_id=rule_id, module=mod_id, pack=pack, relevance="类型默认引用")
+        _append_ref(
+            refs,
+            seen,
+            rule_id=rule_id,
+            module=mod_id,
+            pack=pack,
+            relevance="类型默认引用",
+            reference_source="minimum_pad",
+        )
 
     return refs[:limit]
 
@@ -170,7 +203,15 @@ def merge_rule_pack_references(
             continue
         mod_id = _module_for_rule_id(rid)
         before = len(refs)
-        _append_ref(refs, seen, rule_id=rid, module=mod_id, pack=pack, relevance="调研材料引用")
+        _append_ref(
+            refs,
+            seen,
+            rule_id=rid,
+            module=mod_id,
+            pack=pack,
+            relevance="调研材料引用",
+            reference_source="research",
+        )
         if len(refs) == before:
             continue
         if len(refs) >= limit:

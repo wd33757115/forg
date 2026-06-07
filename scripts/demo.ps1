@@ -1,4 +1,5 @@
 # Forge 常用 Demo 脚本（Windows PowerShell）
+# 5 分钟讲稿见 docs/DEMO_SCRIPT.md
 param(
     [ValidateSet("security", "itil", "mixed", "general")]
     [string]$Type = "security",

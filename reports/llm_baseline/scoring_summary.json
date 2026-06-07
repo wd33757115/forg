@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-06-07T14:23:34.313756+00:00",
+  "scenarios_scored": 3,
+  "overall_average": 5.0,
+  "pass_threshold_3_5": true,
+  "per_scenario": {
+    "security": 5.0,
+    "itil": 5.0,
+    "mixed": 5.0
+  },
+  "missing_scenarios": []
+}

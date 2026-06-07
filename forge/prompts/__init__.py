@@ -1,5 +1,6 @@
-"""Agent prompt templates — prefer ``prompts/<agent>/`` package paths."""
+"""Agent prompt templates — prefer ``forge.prompts.loader`` for agent code."""
 
+from forge.prompts.loader import get_prompt, list_registered_agents, load_prompts
 from forge.prompts.compliance import COMPLIANCE_REACT_TASK, COMPLIANCE_STRUCTURED_PROMPT, COMPLIANCE_SYSTEM
 from forge.prompts.document import DOCUMENT_SYSTEM
 from forge.prompts.operations import OPERATIONS_REACT_TASK, OPERATIONS_STRUCTURED_PROMPT, OPERATIONS_SYSTEM
@@ -12,6 +13,9 @@ from forge.prompts.problem_solver import (
 from forge.prompts.security import SECURITY_REACT_TASK, SECURITY_STRUCTURED_PROMPT, SECURITY_SYSTEM
 
 __all__ = [
+    "get_prompt",
+    "load_prompts",
+    "list_registered_agents",
     "COMPLIANCE_REACT_TASK",
     "COMPLIANCE_STRUCTURED_PROMPT",
     "COMPLIANCE_SYSTEM",

@@ -1,0 +1,40 @@
+{
+  "task": "W1-2 full-pipeline LLM smoke (security)",
+  "date": "2026-06-05",
+  "command": "main.py --type security --auto-approve --no-feedback --report ... --save ... --save-result ...",
+  "run_id": "7061e2ae",
+  "project_id": "w1-2-security",
+  "duration_seconds": 128.42,
+  "dod": {
+    "last_solution": true,
+    "compliance": "compliant",
+    "report_saved": true,
+    "state_archived": true
+  },
+  "metrics": {
+    "rule_pack_refs": 8,
+    "reference_sources": {
+      "research": 8
+    },
+    "recommended_solution_id": "sol-a",
+    "confidence": 0.85,
+    "compliance_gaps": 0,
+    "documents": 7,
+    "compliance_retries": 0,
+    "approval": "auto_approved",
+    "agents_executed": [
+      "problem_solver",
+      "security",
+      "compliance",
+      "document",
+      "pm_advisor",
+      "execution",
+      "approval_gate"
+    ]
+  },
+  "artifacts": {
+    "run_report_md": "reports/llm_baseline/w1-2_security_run.md",
+    "state_json": "reports/llm_baseline/w1-2_security_state.json",
+    "result_json": "reports/llm_baseline/w1-2_security_result.json"
+  }
+}

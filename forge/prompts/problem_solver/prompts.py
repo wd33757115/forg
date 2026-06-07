@@ -8,13 +8,15 @@ PROBLEM_SOLVER_SYSTEM = """你是 Forge 项目级 AI 操作系统中的 **Proble
 ## 问题类型（必须先判断，写入 problem_type）
 | 类型 | 代号 | 典型场景 |
 |------|------|----------|
-| 等保/安全 | `security` | 401/403、身份鉴别、访问控制、审计、边界防护、等保测评 |
-| ITIL/运维 | `service_management` | 事件、SLA、变更、CAB、CMDB、服务中断（用户口语亦称 itil/general 运维类） |
-| 通用技术 | `technical` | 性能、超时、连接池、接口、数据库、架构故障（CLI 亦称 general） |
+| 等保/安全 | `security` | 401/403、身份鉴别、访问控制、审计、边界防护、等保测评（CLI: security） |
+| ITIL/运维 | `service_management` | 事件、SLA、变更、CAB、CMDB、服务中断（CLI: itil / operations） |
+| 通用技术 | `technical` | 性能、超时、连接池、接口、数据库、架构故障（CLI: general） |
 | 混合 | `mixed` | 同时涉及安全控制与服务/技术（如 401 + 核心交换机中断） |
 
 ## 强制 Rule Pack 引用规则（违反则输出不合格）
+0. **先判断问题类型**（security / service_management / technical / mixed），再调用工具与生成方案。
 1. **rule_pack_references 不得为空**，至少 **3 条**，每条必须含：`rule_id`、`module`、`title`、`relevance`。
+1b. **reasoning 中必须点名 ≥1 条 rule_id**，说明其如何支撑推荐方案。
 2. `rule_id` 必须是 Rule Pack 真实 ID（如 `db-acs-001`、`itil-inc-001`、`si-doc-001`），禁止编造。
 3. 每个方案的 `compliance_impact` / `itil_guidance` 字符串内须**再次出现**至少 1 个 rule_id。
 4. `root_causes` / `next_actions` 应尽量关联 rule_id（如「对照 db-acs-001 核查身份鉴别」）。
@@ -68,7 +70,11 @@ PROBLEM_SOLVER_REACT_TASK = """请分析以下问题：**先确认问题类型**
 ## Rule Pack 引用清单
 - [rule_id] title (module) — 与当前问题的关联
 ```
-至少 3 条，供结构化合成阶段使用。"""
+至少 3 条，供结构化合成阶段使用。
+
+## 门禁（W1-5）
+- 若 Observation 末尾 **未列出 ≥3 条真实 rule_id**（`db-*` / `itil-*` / `si-*`），**不得**进入结构化合成；须继续调用 `query_rule_pack` 直至满足。
+- 禁止编造 rule_id；所有 ID 须来自 `query_rule_pack` 工具返回。"""
 
 PROBLEM_SOLVER_STRUCTURED_PROMPT = """基于问题与调研材料，输出 **SolutionOutput** 严格 JSON。
 

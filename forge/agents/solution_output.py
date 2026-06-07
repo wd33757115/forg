@@ -14,6 +14,10 @@ class RulePackReference(BaseModel):
     module: str
     title: str
     relevance: str = Field(default="", description="Why this rule applies")
+    reference_source: str = Field(
+        default="",
+        description="Provenance: keyword | scored | minimum_pad | research | llm",
+    )
 
 
 class SolutionOption(BaseModel):

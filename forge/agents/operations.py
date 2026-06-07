@@ -234,9 +234,10 @@ class OperationsAgent(BaseAgent):
             "specialists_completed": _mark_specialist_done(state, "operations"),
             "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
         }
+        working = {**state, **updates}
         updates.update(
             record_conversation(
-                state,
+                working,
                 agent=self.name,
                 event="operations_advisory",
                 summary=f"ITIL 运维分析 | 域={output.practice_area}",

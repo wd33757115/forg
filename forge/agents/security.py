@@ -242,9 +242,10 @@ class SecurityAgent(BaseAgent):
             "specialists_completed": _mark_specialist_done(state, "security"),
             "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
         }
+        working = {**state, **updates}
         updates.update(
             record_conversation(
-                state,
+                working,
                 agent=self.name,
                 event="security_advisory",
                 summary=f"等保安全分析 | 风险={output.risk_level}",

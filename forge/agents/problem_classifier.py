@@ -102,6 +102,30 @@ def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType
     return "technical", "未命中明确分类关键词，默认按通用技术问题（general）处理"
 
 
+def classify_with_cli_hint(
+    text: str,
+    hint: str | None,
+) -> tuple[ProblemType, str, str | None]:
+    """
+    Classify using CLI hint when present; return optional warning if auto-type differs.
+
+    Used for W1-8: log when ``--type`` disagrees with keyword-only classification.
+    """
+    if not hint:
+        ptype, reason = classify_problem(text)
+        return ptype, reason, None
+
+    hinted, reason = classify_problem(text, hint=hint)
+    auto, auto_reason = classify_problem(text, hint=None)
+    warning: str | None = None
+    if auto != hinted:
+        warning = (
+            f"CLI --type={hint} 映射为 {hinted}，"
+            f"但自动分类为 {auto}（{auto_reason}）"
+        )
+    return hinted, reason, warning
+
+
 def modules_for_problem_type(problem_type: ProblemType) -> list[str]:
     """Suggest Rule Pack modules to prioritize for a problem type."""
     if problem_type == "security":

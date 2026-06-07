@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,7 +11,7 @@ from forge.core.base_agent import BaseAgent
 from forge.agents.problem_classifier import (
     PROBLEM_TYPE_LABELS,
     ProblemType,
-    classify_problem,
+    classify_with_cli_hint,
     modules_for_problem_type,
 )
 from forge.agents.rule_pack_refs import ensure_minimum_references, fetch_relevant_rules, merge_rule_pack_references
@@ -29,6 +30,8 @@ from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
 from forge.utils.knowledge_memory import format_memory_context, search_similar_cases
 from forge.utils.llm import escape_braces_for_format
 from forge.utils.rule_pack_extract import extract_rule_ids_from_text
+
+_RULE_ID_IN_TEXT = re.compile(r"\b((?:db|itil|si)-[a-z0-9-]+)\b", re.IGNORECASE)
 
 
 class ProblemSolverAgent(BaseAgent):
@@ -57,7 +60,10 @@ class ProblemSolverAgent(BaseAgent):
 
     def _classify(self, state: ProjectState, problem_statement: str) -> tuple[ProblemType, str]:
         hint = state.get("problem_type") or state.get("problem_type_hint")
-        return classify_problem(problem_statement, hint=hint)
+        ptype, reason, warning = classify_with_cli_hint(problem_statement, hint=hint)
+        if warning:
+            self.logger.warning("Problem type hint mismatch | %s", warning)
+        return ptype, reason
 
     def _run_react(
         self,
@@ -79,6 +85,13 @@ class ProblemSolverAgent(BaseAgent):
             limit=3,
         )
         prior_cases = format_memory_context(prior)
+        first_id = prior[0].get("id", "—") if prior else "—"
+        self.logger.info(
+            "ReAct prior_cases | count=%d first_id=%s problem_type=%s",
+            len(prior),
+            first_id,
+            problem_type,
+        )
         task = PROBLEM_SOLVER_REACT_TASK.format(
             problem_statement=problem_statement,
             problem_type=problem_type,
@@ -416,7 +429,24 @@ class ProblemSolverAgent(BaseAgent):
             )
         self._ensure_decision_rationale(output)
         self._ensure_reasoning_confidence(output)
+        self._ensure_reasoning_has_rule_ids(output)
         return output
+
+    @staticmethod
+    def _ensure_reasoning_has_rule_ids(output: SolutionOutput) -> None:
+        """W1-6/W1-7: reasoning must mention at least one canonical rule_id."""
+        if not output.reasoning:
+            return
+        if _RULE_ID_IN_TEXT.search(output.reasoning):
+            return
+        refs = output.rule_pack_references or []
+        if not refs:
+            return
+        rid_list = ", ".join(r.rule_id for r in refs[:4])
+        output.reasoning = (
+            f"{output.reasoning.rstrip()}；"
+            f"Rule Pack 依据：{rid_list}"
+        )
 
     @staticmethod
     def _ensure_decision_rationale(output: SolutionOutput) -> None:
@@ -436,8 +466,8 @@ class ProblemSolverAgent(BaseAgent):
     @staticmethod
     def _ensure_reasoning_confidence(output: SolutionOutput) -> None:
         """Fill reasoning and confidence when structured output omitted them."""
+        refs = ", ".join(r.rule_id for r in (output.rule_pack_references or [])[:4])
         if not output.reasoning:
-            refs = ", ".join(r.rule_id for r in (output.rule_pack_references or [])[:4])
             causes = "；".join(output.root_causes[:3]) if output.root_causes else "待补充"
             output.reasoning = (
                 f"1) 问题类型={output.problem_type}；"
@@ -445,6 +475,8 @@ class ProblemSolverAgent(BaseAgent):
                 f"3) Rule Pack 引用：{refs or '无'}；"
                 f"4) 推荐 {output.recommended_solution_id}：{output.decision_rationale[:120]}"
             )
+        elif refs and not _RULE_ID_IN_TEXT.search(output.reasoning):
+            output.reasoning = f"{output.reasoning.rstrip()}；依据 {refs}"
         if output.confidence == 0.5:
             ref_n = len(output.rule_pack_references or [])
             ref_score = min(1.0, ref_n / 3.0)

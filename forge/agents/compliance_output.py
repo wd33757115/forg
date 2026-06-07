@@ -15,6 +15,10 @@ class FailedCheckItem(BaseModel):
     title: str = ""
     description: str = ""
     status: str = Field(default="fail", description="fail | warning")
+    severity: str = Field(
+        default="medium",
+        description="low | medium | high | critical — derived from status and module",
+    )
 
 
 class CheckItem(BaseModel):

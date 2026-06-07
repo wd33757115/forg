@@ -1,0 +1,9 @@
+{
+  "task": "W1-1 LLM three-scenario baseline",
+  "date": "2026-06-05",
+  "command": "pytest tests/test_llm_reference_coverage.py -m llm -v",
+  "result": "4/4 passed",
+  "duration_seconds": 231.29,
+  "scenarios": ["security", "itil", "mixed"],
+  "notes": "Reference rate threshold ≥70% satisfied per test_llm_reference_coverage"
+}

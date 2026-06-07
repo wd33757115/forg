@@ -1,0 +1,25 @@
+{
+  "path_a_week1": {
+    "date": "2026-06-05",
+    "tasks": {
+      "W1-1": { "status": "done", "detail": "4/4 LLM pytest, ~231s" },
+      "W1-2": { "status": "done", "detail": "security full pipeline, reports/llm_baseline/w1-2_*" },
+      "W1-3": { "status": "done", "detail": "scoring_{security,itil,mixed}.json, overall_avg=5.0" },
+      "W1-4": { "status": "done", "detail": "reference_stats.json, minimum_pad_ratio=0.0" },
+      "W1-5_to_W1-9": { "status": "done", "detail": "ProblemSolver gates + rule_pack_refs provenance" }
+    },
+    "full_pipeline_runs": {
+      "security": { "run_id": "7061e2ae", "seconds": 128.42, "refs": 8, "compliant": true },
+      "itil": { "run_id": "066ed96e", "seconds": 136.81, "refs": 8, "compliant": true },
+      "mixed": { "run_id": "b7fef38e", "seconds": 153.93, "refs": 8, "compliant": true }
+    }
+  },
+  "path_a_week2_started": {
+    "W2-1": "docs/COMPLIANCE_CHECK_MODE.md behavior table",
+    "W2-2": "handoff_rule_ids in compliance thinking (pre-existing)",
+    "W2-3": "matched_rules in report when compliant (pre-existing)",
+    "W2-5": "docs/DEMO_SCRIPT.md",
+    "W2-6": "reports/sample_security.md",
+    "W2-9": "security/operations record_conversation merged state fix"
+  }
+}
