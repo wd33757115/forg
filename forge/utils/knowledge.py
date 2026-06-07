@@ -56,18 +56,38 @@ def append_knowledge_to_state(
     return {"knowledge_base": kb}
 
 
-def _score_entry(entry: dict[str, Any], tag_set: set[str], agent: str | None) -> float:
+def _keyword_overlap(text: str, keywords: list[str]) -> float:
+    if not keywords:
+        return 0.0
+    lower = text.lower()
+    hits = sum(1 for kw in keywords if kw.lower() in lower)
+    return hits / len(keywords)
+
+
+def _score_entry(
+    entry: dict[str, Any],
+    tag_set: set[str],
+    agent: str | None,
+    *,
+    keywords: list[str] | None = None,
+    match_all_tags: bool = False,
+) -> float:
     score = 0.0
     entry_tags = {str(t).lower() for t in entry.get("tags", [])}
     if tag_set:
-        overlap = len(tag_set.intersection(entry_tags))
-        score += overlap * 2.0
+        overlap = tag_set.intersection(entry_tags)
+        if match_all_tags and overlap != tag_set:
+            return -1.0
+        score += len(overlap) * 2.0
     if agent and entry.get("source") == agent:
         score += 1.0
     if entry.get("outcome") in ("success", "compliant", "resolved"):
         score += 0.5
     if entry.get("related_rules"):
         score += 0.3
+    content = f"{entry.get('content', '')} {' '.join(entry.get('tags', []))}"
+    kw_score = _keyword_overlap(content, keywords or [])
+    score += kw_score * 3.0
     return score
 
 
@@ -77,18 +97,22 @@ def search_knowledge(
     tags: list[str] | None = None,
     agent: str | None = None,
     category: str | None = None,
+    keywords: list[str] | None = None,
+    match_all_tags: bool = False,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """
-    Filter and rank knowledge_base entries by tag/agent/category.
+    Filter and rank knowledge_base entries by tag/agent/category/keywords.
 
-    Multi-tag overlap increases rank; successful outcomes score higher.
+  - Multiple tags: overlap increases rank; ``match_all_tags=True`` requires every tag.
+  - ``keywords``: simple substring match against content + tags (similarity ranking).
     """
     entries = list(state.get("knowledge_base", []))
     if not entries:
         return []
 
     tag_set = {t.lower() for t in (tags or [])}
+    kw_list = [k.strip() for k in (keywords or []) if k.strip()]
     scored: list[tuple[float, dict[str, Any]]] = []
 
     for entry in entries:
@@ -96,11 +120,22 @@ def search_knowledge(
             continue
         if category and entry.get("category") != category:
             continue
-        if tag_set:
+        if tag_set and not match_all_tags:
             entry_tags = {str(t).lower() for t in entry.get("tags", [])}
             if not tag_set.intersection(entry_tags):
                 continue
-        scored.append((_score_entry(entry, tag_set, agent), entry))
+        rank = _score_entry(
+            entry,
+            tag_set,
+            agent,
+            keywords=kw_list,
+            match_all_tags=match_all_tags,
+        )
+        if rank < 0:
+            continue
+        if kw_list and rank == 0 and not tag_set and not agent:
+            continue
+        scored.append((rank, entry))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [e for _, e in scored[:limit]]

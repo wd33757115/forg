@@ -24,6 +24,7 @@ from forge.core.state import (
 )
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.logger import get_logger, log_pipeline_step
+from forge.utils.trace import append_pipeline_trace, build_supervisor_trace_entry
 
 logger = get_logger("supervisor")
 
@@ -545,6 +546,17 @@ class Supervisor:
                 detail=decision.reason,
                 level="WARNING",
             )
+            retry_n = int(state.get("compliance_retry_count", 0)) + 1
+            updates["pipeline_trace"] = append_pipeline_trace(
+                {**state, **updates},
+                build_supervisor_trace_entry(
+                    state,
+                    event="compliance_retry_route",
+                    detail=decision.reason,
+                    next_agent=decision.next_agent.value,
+                    output_summary=f"触发合规重试 #{retry_n} → problem_solver",
+                ),
+            )
 
         log_pipeline_step(
             logger,
@@ -574,6 +586,17 @@ class Supervisor:
                 summary=f"路由到 {decision.next_agent}: {decision.reason}",
                 detail={"next_agent": decision.next_agent.value, "step": str(step)},
             )
+        )
+        trace_entry = build_supervisor_trace_entry(
+            {**state, **updates},
+            event=f"route_{step.value}",
+            detail=decision.reason,
+            next_agent=decision.next_agent.value,
+            output_summary=f"→ {decision.next_agent.value} ({decision.reason[:80]})",
+        )
+        updates["pipeline_trace"] = append_pipeline_trace(
+            {**state, **updates},
+            trace_entry,
         )
         return updates
 

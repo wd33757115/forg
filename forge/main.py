@@ -31,7 +31,9 @@ from forge.utils.env import load_dotenv
 from forge.utils.llm import get_api_key
 from forge.utils.logger import get_logger, setup_logging
 from forge.utils.result_serializer import default_run_result_path, save_run_result
-from forge.utils.run_report import default_report_path, write_run_report
+from forge.utils.report import prompt_save_run_report
+from forge.utils.run_report import default_report_path as legacy_report_path
+from forge.utils.run_report import write_run_report
 from forge.utils.state_persistence import list_saved_states, load_state_with_metadata, save_state
 
 __all__ = [
@@ -216,6 +218,30 @@ def main(argv: list[str] | None = None) -> int:
     else:
         display.print_demo_result(result, question=question, elapsed_ms=elapsed_ms)
 
+    if args.report:
+        report_path = (
+            legacy_report_path(args.project_id, result.get("run_id") or "unknown")
+            if args.report == "auto"
+            else args.report
+        )
+        written = write_run_report(
+            result,
+            report_path,
+            question=question,
+            scenario=scenario_label,
+            elapsed_ms=elapsed_ms,
+        )
+        display.info(f"运行报告: {written}")
+    elif not args.no_report_prompt:
+        saved_report = prompt_save_run_report(
+            result,
+            question=question,
+            scenario=scenario_label,
+            elapsed_ms=elapsed_ms,
+        )
+        if saved_report:
+            display.success(f"运行报告已保存: {saved_report}")
+
     if not args.no_feedback:
         feedback_entry = collect_user_feedback(result, question=question)
         if feedback_entry:
@@ -240,22 +266,6 @@ def main(argv: list[str] | None = None) -> int:
             metadata={"last_question": question, "scenario": scenario_label},
         )
         display.info(f"状态已保存: {saved}")
-
-    if args.report:
-        run_id = result.get("run_id") or "unknown"
-        report_path = (
-            default_report_path(args.project_id, run_id)
-            if args.report == "auto"
-            else args.report
-        )
-        written = write_run_report(
-            result,
-            report_path,
-            question=question,
-            scenario=scenario_label,
-            elapsed_ms=elapsed_ms,
-        )
-        display.info(f"运行报告: {written}")
 
     do_save_result = args.save_result or args.save
     if do_save_result:

@@ -7,6 +7,7 @@ from typing import Any
 from forge.core.approval.flow import run_approval_gate
 from forge.core.state import ProjectState
 from forge.utils.conversation import record_conversation
+from forge.utils.trace import append_pipeline_trace, summarize_agent_input, summarize_agent_output
 
 
 def approval_gate_node(state: ProjectState) -> dict[str, Any]:
@@ -33,5 +34,16 @@ def approval_gate_node(state: ProjectState) -> dict[str, Any]:
                 "pending_count": len(result.get("pending_approvals") or []),
             },
         )
+    )
+    output_summary = summarize_agent_output(state, "approval_gate", updates)
+    updates["pipeline_trace"] = append_pipeline_trace(
+        state,
+        {
+            "agent": "approval_gate",
+            "status": "success",
+            "input_summary": summarize_agent_input(state, "approval_gate"),
+            "output_summary": output_summary,
+            "detail": output_summary,
+        },
     )
     return updates

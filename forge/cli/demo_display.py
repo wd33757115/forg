@@ -50,25 +50,78 @@ class ForgeDemoDisplay(ForgeDisplay):
         self._console.print()
         self._print_pipeline_banner(result)
         if question:
-            self._console.print(Panel(question, title="① 用户问题", border_style="white"))
+            self._console.print(Panel(question, title="① 用户问题", border_style="white", padding=(1, 2)))
+        self._print_agent_pipeline_table(result)
         self._print_solution_panel(result)
         self._print_compliance_panel(result, stats)
-        self._print_compliance_retry_timeline(result)
+        if stats.get("compliance_retries", 0) > 0:
+            self._print_compliance_retry_timeline(result)
         self._print_documents_panel(result)
         self._print_pm_panel(result)
         self._print_confidence_factors(result)
         self._print_execution_panel(result)
         self._print_approval_panel(result)
         self._print_thinking_chain_rich(result)
-        self._print_handoff_chain(result)
-        self.print_agent_contributions(result)
         self.print_errors(result)
-        self._print_stats_panel(stats)
+        self._print_run_summary(stats, result)
         self._console.print()
 
     def _status_text(self, value: str) -> Text:
         style = _STATUS_STYLE.get(str(value).lower(), "")
         return Text(str(value), style=style) if style else Text(str(value))
+
+    def _print_agent_pipeline_table(self, result: dict[str, Any]) -> None:
+        trace = [t for t in (result.get("pipeline_trace") or []) if t.get("status") != "running"]
+        if not trace:
+            return
+        table = Table(
+            title="Agent 执行追踪",
+            box=box.ROUNDED,
+            show_lines=False,
+            header_style="bold cyan",
+        )
+        table.add_column("Agent", style="cyan", width=14)
+        table.add_column("状态", width=8)
+        table.add_column("耗时", width=8, justify="right")
+        table.add_column("输入 / 输出摘要", ratio=1)
+        for step in trace:
+            agent = step.get("agent") or step.get("node") or "?"
+            status = step.get("status", "?")
+            dur = step.get("duration_ms")
+            dur_s = f"{dur}ms" if dur is not None else "—"
+            inp = step.get("input_summary") or ""
+            out = step.get("output_summary") or step.get("detail") or ""
+            summary = f"[dim]入[/] {inp[:70]}"
+            if out:
+                summary += f"\n[dim]出[/] {out[:90]}"
+            table.add_row(agent, self._status_text(status), dur_s, summary)
+        self._console.print(Panel(table, border_style="blue"))
+
+    def _print_run_summary(self, stats: dict[str, Any], result: dict[str, Any]) -> None:
+        """Compact footer: timing, agents, compliance, confidence."""
+        comp = stats.get("compliance_status", "—")
+        conf = stats.get("confidence_score", 0)
+        table = Table(box=box.DOUBLE_EDGE, show_header=False, padding=(0, 1))
+        table.add_column("K", style="bold")
+        table.add_column("V")
+        rows = [
+            ("耗时", f"{stats.get('elapsed_s', '—')}s"),
+            ("Agent 调用", f"{stats.get('agents_invoked', 0)} 次 ({stats.get('agents_success', 0)} 成功)"),
+            ("合规状态", str(comp)),
+            ("合规重试", str(stats.get("compliance_retries", 0))),
+            ("资料", f"{stats.get('documents_generated', 0)} 份"),
+            ("置信度", f"{conf:.0%}"),
+            ("风险", str(stats.get("risk_level", "—"))),
+            ("Run ID", str(result.get("run_id", "—"))),
+        ]
+        for k, v in rows:
+            if k == "合规状态":
+                table.add_row(k, self._status_text(v))
+            elif k == "置信度":
+                table.add_row(k, f"[bold]{v}[/]")
+            else:
+                table.add_row(k, str(v))
+        self._console.print(Panel(table, title="运行摘要", border_style="green"))
 
     def _print_pipeline_banner(self, result: dict[str, Any]) -> None:
         plan = result.get("workflow_plan") or {}

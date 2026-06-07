@@ -12,6 +12,11 @@ from langchain_core.messages import AIMessage
 from forge.core.state import ProjectState
 from forge.utils.conversation import record_conversation
 from forge.utils.logger import get_logger
+from forge.utils.trace import (
+    append_pipeline_trace,
+    summarize_agent_input,
+    summarize_agent_output,
+)
 
 # Agents whose failure should not abort the entire pipeline
 OPTIONAL_AGENTS = frozenset({"security", "operations", "document", "pm_advisor"})
@@ -40,12 +45,6 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _append_trace(state: ProjectState, entry: dict[str, Any]) -> list[dict[str, Any]]:
-    trace = list(state.get("pipeline_trace", []))
-    trace.append(entry)
-    return trace
-
-
 def wrap_agent_node(
     agent_fn: Callable[[ProjectState], dict[str, Any]],
     agent_name: str,
@@ -70,6 +69,7 @@ def wrap_agent_node(
         check_mode = state.get("check_mode")
         retry_generation = int(state.get("compliance_retry_count") or 0)
 
+        input_summary = summarize_agent_input(state, agent_name)
         start_entry = {
             "agent": agent_name,
             "status": "running",
@@ -77,21 +77,25 @@ def wrap_agent_node(
             "run_id": run_id,
             "check_mode": check_mode,
             "retry_generation": retry_generation,
+            "input_summary": input_summary,
         }
 
         try:
             updates = agent_fn(state)
             duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+            output_summary = summarize_agent_output(state, agent_name, updates)
             success_entry = {
                 **start_entry,
                 "status": "success",
                 "finished_at": _utc_now(),
                 "duration_ms": duration_ms,
+                "output_summary": output_summary,
+                "detail": output_summary,
             }
-            logger.info("[%s] ✓ agent=%s success", run_id, agent_name)
+            logger.info("[%s] ✓ agent=%s success | %s", run_id, agent_name, output_summary)
 
             merged: dict[str, Any] = dict(updates)
-            merged["pipeline_trace"] = _append_trace(state, success_entry)
+            merged["pipeline_trace"] = append_pipeline_trace(state, success_entry)
             return merged
 
         except Exception as exc:
@@ -113,11 +117,13 @@ def wrap_agent_node(
                 "error": str(exc),
                 "finished_at": _utc_now(),
                 "duration_ms": duration_ms,
+                "output_summary": f"失败: {exc}",
+                "detail": str(exc),
             }
 
             recovery: dict[str, Any] = {
                 "agent_errors": list(state.get("agent_errors", [])) + [error_record],
-                "pipeline_trace": _append_trace(state, fail_entry),
+                "pipeline_trace": append_pipeline_trace(state, fail_entry),
                 "messages": [
                     AIMessage(
                         content=f"[{agent_name}] 执行失败（已记录，流程继续）: {exc}",

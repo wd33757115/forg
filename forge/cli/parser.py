@@ -59,6 +59,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-feedback", action="store_true", help="跳过满意度评分")
     parser.add_argument(
+        "--no-report-prompt",
+        action="store_true",
+        help="跳过结束后「是否生成运行报告」询问",
+    )
+    parser.add_argument(
         "--plain",
         action="store_true",
         help="使用 ANSI 纯文本输出（默认 Rich Demo 故事板）",

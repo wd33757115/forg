@@ -8,6 +8,7 @@ from forge.core.confidence import ConfidenceScorer
 from forge.core.execution.generator import generate_execution_tasks
 from forge.core.state import ProjectState
 from forge.utils.conversation import record_conversation
+from forge.utils.trace import append_pipeline_trace, summarize_agent_input, summarize_agent_output
 
 
 def execution_node(state: ProjectState) -> dict[str, Any]:
@@ -43,5 +44,16 @@ def execution_node(state: ProjectState) -> dict[str, Any]:
             summary=f"生成 {len(tasks)} 项执行任务 | 置信度 {confidence.score:.0%}",
             detail={"task_count": len(tasks), "recommendation": confidence.recommendation},
         )
+    )
+    output_summary = summarize_agent_output(state, "execution", updates)
+    updates["pipeline_trace"] = append_pipeline_trace(
+        state,
+        {
+            "agent": "execution",
+            "status": "success",
+            "input_summary": summarize_agent_input(state, "execution"),
+            "output_summary": output_summary,
+            "detail": output_summary,
+        },
     )
     return updates

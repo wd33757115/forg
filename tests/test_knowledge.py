@@ -56,6 +56,29 @@ def test_append_knowledge_with_item_dict():
     assert entry["id"] == "kb-custom-1"
 
 
+def test_search_knowledge_keywords_and_match_all_tags():
+    state = create_initial_state("kb-kw")
+    state["knowledge_base"] = [
+        {
+            "id": "1",
+            "content": "等保三级登录故障案例",
+            "tags": ["security", "auth"],
+            "source": "a",
+        },
+        {
+            "id": "2",
+            "content": "ITIL 事件管理",
+            "tags": ["itil", "auth"],
+            "source": "b",
+        },
+    ]
+    hits = search_knowledge(state, tags=["security", "auth"], match_all_tags=True)
+    assert len(hits) == 1
+    assert hits[0]["id"] == "1"
+    kw_hits = search_knowledge(state, keywords=["登录", "等保"])
+    assert kw_hits[0]["id"] == "1"
+
+
 def test_record_handoff_in_conversation():
     from forge.utils.agent_context import build_handoff
     from forge.utils.conversation import record_handoff
