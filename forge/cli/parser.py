@@ -59,6 +59,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-feedback", action="store_true", help="跳过满意度评分")
     parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="使用 ANSI 纯文本输出（默认 Rich Demo 故事板）",
+    )
+    parser.add_argument(
         "--demo-seed",
         action="store_true",
         help="为空白项目预置演示用文档/WBS（提升合规 partial 与资料生成稳定性）",

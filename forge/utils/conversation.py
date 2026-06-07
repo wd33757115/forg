@@ -57,3 +57,24 @@ def record_thinking(
         summary=thought,
         detail=detail,
     )
+
+
+def record_handoff(
+    state: dict[str, Any],
+    *,
+    from_agent: str,
+    to_agent: str,
+    payload_keys: list[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Record structured handoff between agents in conversation_history."""
+    return record_conversation(
+        state,
+        agent=from_agent,
+        event="handoff",
+        summary=f"传递上下文给 {to_agent}",
+        detail={
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "payload_keys": payload_keys or [],
+        },
+    )

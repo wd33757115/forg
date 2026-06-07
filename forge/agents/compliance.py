@@ -362,6 +362,7 @@ class ComplianceAgent(BaseAgent):
         agent_updates: dict[str, Any] = {
             **self.reply(body),
             "last_compliance_result": structured,
+            "risk_level": output.risk_level,
             "compliance_history": state.get("compliance_history", []) + [record],
             "compliance_results": state.get("compliance_results", []) + [structured],
             "workflow_step": "post_compliance" if in_closed_loop else None,

@@ -16,8 +16,17 @@ def append_knowledge(
     tags: list[str] | None = None,
     category: str = "general",
     detail: dict[str, Any] | None = None,
+    item: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a knowledge_base entry dict (caller merges into state updates)."""
+    """
+    Build a knowledge_base entry dict (caller merges into state updates).
+
+    Pass a pre-built ``item`` dict to store as-is (must include id/content).
+    """
+    if item is not None:
+        entry = dict(item)
+        entry.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+        return entry
     kb = state.get("knowledge_base", [])
     entry = {
         "id": f"kb-{state.get('project_id', 'unknown')}-{agent}-{len(kb)}",
@@ -29,6 +38,16 @@ def append_knowledge(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     return entry
+
+
+def append_knowledge_to_state(
+    state: ProjectState,
+    entry: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """Return state update with one new knowledge_base entry appended."""
+    kb = list(state.get("knowledge_base", []))
+    kb.append(entry)
+    return {"knowledge_base": kb}
 
 
 def search_knowledge(

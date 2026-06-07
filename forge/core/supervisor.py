@@ -708,6 +708,18 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     operations = state.get("last_operations_result") or {}
     retry_count = state.get("compliance_retry_count", 0)
 
+    from forge.cli.stats import compute_confidence_score
+
+    confidence_score = compute_confidence_score(
+        {
+            **state,
+            "last_solution": solution,
+            "last_compliance_result": compliance,
+            "compliance_retry_count": retry_count,
+        }
+    )
+    session_risk = compliance.get("risk_level", "unknown")
+
     rec_id = solution.get("recommended_solution_id", "N/A")
     analysis = solution.get("problem_analysis", "无方案输出")
     comp_status = compliance.get("compliance_status", compliance.get("overall_status", "unknown"))
@@ -831,6 +843,8 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "workflow_step": None,
         "active_workflow": None,
         "final_output": final_output,
+        "confidence_score": confidence_score,
+        "risk_level": session_risk,
         "messages": [AIMessage(content="\n".join(lines), name="forge_finalize")],
     }
     finalize_updates.update(

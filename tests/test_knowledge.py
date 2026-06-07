@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from forge.core.state import create_initial_state
-from forge.utils.knowledge import append_knowledge, format_knowledge_context, search_knowledge
+from forge.utils.knowledge import (
+    append_knowledge,
+    append_knowledge_to_state,
+    format_knowledge_context,
+    search_knowledge,
+)
 
 
 def test_append_and_search_by_tag():
@@ -34,3 +39,41 @@ def test_search_by_agent():
 
 def test_format_knowledge_context_empty():
     assert "无相关" in format_knowledge_context([])
+
+
+def test_append_knowledge_to_state():
+    state = create_initial_state("kb-append")
+    entry = append_knowledge(state, agent="test", summary="案例", tags=["security"])
+    update = append_knowledge_to_state(state, entry)
+    assert len(update["knowledge_base"]) == 1
+    assert update["knowledge_base"][0]["content"] == "案例"
+
+
+def test_append_knowledge_with_item_dict():
+    state = create_initial_state("kb-item")
+    custom = {"id": "kb-custom-1", "content": "raw", "source": "import", "tags": []}
+    entry = append_knowledge(state, agent="x", summary="", item=custom)
+    assert entry["id"] == "kb-custom-1"
+
+
+def test_record_handoff_in_conversation():
+    from forge.utils.agent_context import build_handoff
+    from forge.utils.conversation import record_handoff
+
+    state = create_initial_state("handoff-test")
+    state.update(
+        build_handoff(
+            state,
+            from_agent="problem_solver",
+            to_agent="compliance",
+            payload={"rule_pack_references": [], "problem_type": "security"},
+        )
+    )
+    handoffs = [h for h in state["conversation_history"] if h.get("event") == "handoff"]
+    assert len(handoffs) == 1
+    assert handoffs[0]["detail"]["to_agent"] == "compliance"
+
+    # direct API
+    state2 = create_initial_state("handoff-2")
+    state2.update(record_handoff(state2, from_agent="a", to_agent="b", payload_keys=["k"]))
+    assert state2["conversation_history"][0]["event"] == "handoff"

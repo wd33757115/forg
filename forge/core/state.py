@@ -161,6 +161,9 @@ class ProjectState(TypedDict):
     next_agent: str | None
     # Compliance strictness: strict | advisory | lenient
     check_mode: str | None
+    # v1.1 session metrics (set during pipeline / finalize)
+    confidence_score: float | None
+    risk_level: str | None
 
 
 def create_initial_state(
@@ -206,4 +209,6 @@ def create_initial_state(
         workflow_step=None,
         next_agent=None,
         check_mode=DEFAULT_CHECK_MODE,
+        confidence_score=None,
+        risk_level=None,
     )

@@ -24,7 +24,7 @@ from forge.prompts.problem_solver_prompt import (
 from forge.tools.problem_solver_tools import run_tool_research
 from forge.utils.agent_context import build_handoff
 from forge.utils.conversation import record_conversation, record_thinking
-from forge.utils.knowledge import format_knowledge_context, search_knowledge
+from forge.utils.knowledge import append_knowledge, append_knowledge_to_state, format_knowledge_context, search_knowledge
 from forge.utils.llm import escape_braces_for_format
 from forge.utils.rule_pack_extract import extract_rule_ids_from_text
 
@@ -470,19 +470,20 @@ class ProblemSolverAgent(BaseAgent):
             "itil_considerations": solution.itil_considerations,
         }
 
-        knowledge_entry = {
-            "id": f"kb-{state['project_id']}-ps-{len(state.get('knowledge_base', []))}",
-            "category": "problem_solution",
-            "content": solution.problem_analysis,
-            "source": self.name,
-            "tags": ["problem_solver", problem_type, f"attempt_{retry_count + 1}"],
-            "metadata": {
+        knowledge_entry = append_knowledge(
+            state,
+            agent=self.name,
+            summary=solution.problem_analysis[:2000],
+            tags=["problem_solver", problem_type, f"attempt_{retry_count + 1}"],
+            category="problem_solution",
+            detail={
                 "solution": solution_dict,
                 "recommended_solution_id": solution.recommended_solution_id,
                 "retry_count": retry_count,
                 "problem_type": problem_type,
+                "rule_pack_refs": [r.rule_id for r in solution.rule_pack_references[:8]],
             },
-        }
+        )
 
         response_body = self._format_response(solution)
         if in_closed_loop:
@@ -503,7 +504,7 @@ class ProblemSolverAgent(BaseAgent):
             **self.reply(response_body),
             "last_solution": solution_dict,
             "problem_type": problem_type,
-            "knowledge_base": state.get("knowledge_base", []) + [knowledge_entry],
+            **append_knowledge_to_state(state, knowledge_entry),
             "pending_tasks": [
                 t
                 for t in state.get("pending_tasks", [])

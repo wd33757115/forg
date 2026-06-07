@@ -8,7 +8,8 @@ import time
 import traceback
 
 from forge.cli.ansi import red, section, yellow
-from forge.cli.display import ForgeDisplay, collect_user_feedback
+from forge.cli.demo_display import ForgeDemoDisplay
+from forge.cli.display import collect_user_feedback
 from forge.cli.parser import build_cli_parser
 from forge.cli.resolvers import (
     TYPE_LABELS,
@@ -63,7 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     log_level = "DEBUG" if args.verbose else settings.log_level
     setup_logging(log_level, log_file=args.log_file)
     logger = get_logger("main")
-    display = ForgeDisplay(use_color=not os.environ.get("NO_COLOR"))
+    use_color = not os.environ.get("NO_COLOR")
+    display = ForgeDemoDisplay(use_color=use_color and not args.plain)
 
     if args.web:
         try:
@@ -190,11 +192,14 @@ def main(argv: list[str] | None = None) -> int:
     elapsed_ms = result.get("_elapsed_ms", 0)
     display.info(f"总耗时: {elapsed_ms / 1000:.2f}s")
 
-    print_result(result, question=question)
-    display.print_thinking_chain(result.get("conversation_history") or [])
-    display.print_agent_contributions(result)
-    display.print_errors(result)
-    display.print_summary_footer(result, elapsed_ms=elapsed_ms)
+    if args.plain:
+        print_result(result, question=question)
+        display.print_thinking_chain(result.get("conversation_history") or [])
+        display.print_agent_contributions(result)
+        display.print_errors(result)
+        display.print_summary_footer(result, elapsed_ms=elapsed_ms)
+    else:
+        display.print_demo_result(result, question=question, elapsed_ms=elapsed_ms)
 
     if not args.no_feedback:
         feedback_entry = collect_user_feedback(result, question=question)

@@ -21,14 +21,26 @@ def build_handoff(
     Attach structured payload for the next agent in the pipeline.
 
     Stored under ``agent_context[to_agent]`` with metadata about the sender.
+    Also appends a ``handoff`` event to ``conversation_history`` for CLI trace.
     """
+    from forge.utils.conversation import record_handoff
+
     ctx = dict(state.get("agent_context") or {})
     ctx[to_agent] = {
         "from": from_agent,
         "payload": payload,
         "timestamp": _utc_now(),
     }
-    return {"agent_context": ctx}
+    updates: dict[str, Any] = {"agent_context": ctx}
+    updates.update(
+        record_handoff(
+            state,
+            from_agent=from_agent,
+            to_agent=to_agent,
+            payload_keys=list(payload.keys()),
+        )
+    )
+    return updates
 
 
 def get_handoff_payload(state: dict[str, Any], agent: str) -> dict[str, Any]:
