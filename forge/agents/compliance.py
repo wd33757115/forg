@@ -15,11 +15,13 @@ from forge.agents.compliance_output import (
 )
 from forge.agents.solution_output import SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ComplianceResult, ProjectState
-from forge.prompts.compliance_prompt import (
-    COMPLIANCE_REACT_TASK,
-    COMPLIANCE_STRUCTURED_PROMPT,
-    COMPLIANCE_SYSTEM,
-)
+from forge.prompts.loader import load_prompts
+from forge.utils.compliance_explain import build_check_explanations
+
+_cp = load_prompts("compliance")
+COMPLIANCE_REACT_TASK = _cp.COMPLIANCE_REACT_TASK
+COMPLIANCE_STRUCTURED_PROMPT = _cp.COMPLIANCE_STRUCTURED_PROMPT
+COMPLIANCE_SYSTEM = _cp.COMPLIANCE_SYSTEM
 from forge.tools.compliance_tools import (
     build_compliance_output_from_checks,
     normalize_check_item,
@@ -267,6 +269,7 @@ class ComplianceAgent(BaseAgent):
             "base_compliance_status": base_status,
             "evidence_coverage": round(evidence_coverage, 3),
         }
+        structured["check_explanations"] = build_check_explanations(structured)
         return record, structured
 
     @staticmethod
@@ -308,6 +311,8 @@ class ComplianceAgent(BaseAgent):
         self,
         state: ProjectState,
         solution: SolutionOutput,
+        *,
+        handoff: dict[str, Any] | None = None,
     ) -> ComplianceOutput:
         """
         Validate a ProblemSolver solution against compliance requirements.
@@ -324,7 +329,16 @@ class ComplianceAgent(BaseAgent):
             f"ProblemSolver 方案合规校验 | 推荐方案: {solution.recommended_solution_id} ({rec_title}) | "
             f"{solution.problem_analysis[:300]}"
         )
-        # Enrich check: solution compliance_impact text counts as soft evidence
+        payload = handoff or {}
+        if payload.get("decision_rationale"):
+            context += f" | 决策依据: {str(payload['decision_rationale'])[:200]}"
+        refs = payload.get("rule_pack_references") or []
+        if refs:
+            rule_ids = ", ".join(
+                r.get("rule_id", "") for r in refs if isinstance(r, dict) and r.get("rule_id")
+            )[:120]
+            if rule_ids:
+                context += f" | Rule Pack: {rule_ids}"
         return self.run_compliance(state, context=context, skip_react=True)
 
     def run(self, state: ProjectState) -> dict[str, Any]:
@@ -340,7 +354,7 @@ class ComplianceAgent(BaseAgent):
                     r.get("rule_id", "") for r in handoff["rule_pack_references"][:5]
                 )
                 self.logger.info("Compliance received handoff | refs=%s", refs)
-            output = self.validate_solution(state, solution)
+            output = self.validate_solution(state, solution, handoff=handoff)
         else:
             output = self.run_compliance(state)
 
@@ -381,12 +395,21 @@ class ComplianceAgent(BaseAgent):
             "compliance_status": status_label,
             "risk_level": output.risk_level,
             "missing_count": len(output.missing_items),
+            "explanation_count": len(structured.get("check_explanations") or []),
         }
         if handoff.get("recommended_solution_id"):
             thinking_detail["validated_solution"] = handoff["recommended_solution_id"]
+        if handoff.get("decision_rationale"):
+            thinking_detail["decision_rationale"] = str(handoff["decision_rationale"])[:200]
+        handoff_refs = handoff.get("rule_pack_references") or []
+        if handoff_refs:
+            thinking_detail["handoff_rule_ids"] = [
+                r.get("rule_id") for r in handoff_refs if isinstance(r, dict) and r.get("rule_id")
+            ][:6]
+        working = {**state, **agent_updates}
         agent_updates.update(
             record_thinking(
-                state,
+                working,
                 agent=self.name,
                 thought=(
                     f"对方案 {handoff.get('recommended_solution_id', 'N/A')} 执行合规校验，"
@@ -396,9 +419,10 @@ class ComplianceAgent(BaseAgent):
                 extra=thinking_detail,
             )
         )
+        working = {**state, **agent_updates}
         agent_updates.update(
             record_conversation(
-                state,
+                working,
                 agent=self.name,
                 event="compliance_check",
                 summary=f"合规检查完成: {status_label}（风险 {output.risk_level}）",

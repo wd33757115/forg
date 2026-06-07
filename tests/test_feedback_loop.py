@@ -25,3 +25,18 @@ def test_apply_feedback_loop_with_execution():
     state["problem_type"] = "security"
     patch = apply_feedback_loop(state, approval_status="auto_approved")
     assert len(patch.get("knowledge_base", [])) >= 1
+
+
+def test_execution_results_feedback_outcome():
+    from forge.utils.feedback_loop import record_execution_feedback
+
+    state = create_initial_state("fb-exec")
+    state["problem_type"] = "security"
+    state["execution_results"] = [
+        {"task_id": "t1", "status": "success", "summary": "完成", "metadata": {"backend": "simulate"}},
+        {"task_id": "t2", "status": "failed", "summary": "失败"},
+    ]
+    patch = record_execution_feedback(state)
+    entry = patch["knowledge_base"][-1]
+    assert entry["outcome"] == "partial"
+    assert "execution" in entry["tags"]

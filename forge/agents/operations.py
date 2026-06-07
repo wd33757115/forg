@@ -9,11 +9,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from forge.core.base_agent import BaseAgent
 from forge.agents.operations_output import ChangeGuidance, IncidentGuidance, OperationsOutput
 from forge.core.state import ProjectState, WORKFLOW_PROBLEM_COMPLIANCE_LOOP
-from forge.prompts.operations_prompt import (
-    OPERATIONS_REACT_TASK,
-    OPERATIONS_STRUCTURED_PROMPT,
-    OPERATIONS_SYSTEM,
-)
+from forge.prompts.loader import load_prompts
+
+_ops = load_prompts("operations")
+OPERATIONS_REACT_TASK = _ops.OPERATIONS_REACT_TASK
+OPERATIONS_STRUCTURED_PROMPT = _ops.OPERATIONS_STRUCTURED_PROMPT
+OPERATIONS_SYSTEM = _ops.OPERATIONS_SYSTEM
 from forge.tools.operations_tools import run_operations_research
 from forge.utils.conversation import record_conversation
 from forge.utils.llm import escape_braces_for_format

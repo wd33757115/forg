@@ -42,12 +42,40 @@ def record_approval_feedback(state: ProjectState, approval_status: str) -> dict[
 
 
 def record_execution_feedback(state: ProjectState) -> dict[str, Any]:
-    """Persist ready/blocked execution tasks summary to knowledge_base."""
+    """Persist execution results (or ready tasks) to knowledge_base for history_factor."""
+    results = state.get("execution_results") or []
     tasks = state.get("execution_tasks") or []
+    problem_type = state.get("problem_type") or (state.get("last_solution") or {}).get("problem_type", "general")
+
+    if results:
+        successes = sum(1 for r in results if r.get("status") == "success")
+        outcome = "success" if successes == len(results) else (
+            "partial" if successes else "failed"
+        )
+        titles = "; ".join((r.get("summary") or "")[:40] for r in results[:3])
+        summary = f"执行完成 {successes}/{len(results)} 成功 | {titles}"
+        entry = append_knowledge(
+            state,
+            agent="execution",
+            summary=summary,
+            tags=[problem_type, "execution", outcome],
+            category="feedback",
+            detail={
+                "type": "execution_outcome",
+                "task_count": len(results),
+                "success_count": successes,
+                "task_ids": [r.get("task_id") for r in results[:8]],
+                "problem_type": problem_type,
+                "backend": (results[0].get("metadata") or {}).get("backend"),
+            },
+        )
+        entry["type"] = "feedback"
+        entry["outcome"] = outcome
+        return append_knowledge_to_state(state, entry)
+
     ready = [t for t in tasks if t.get("status") in ("ready", "executed")]
     if not ready:
         return {}
-    problem_type = state.get("problem_type") or (state.get("last_solution") or {}).get("problem_type", "general")
     titles = "; ".join(t.get("title", "")[:40] for t in ready[:3])
     summary = f"执行任务 {len(ready)} 项就绪 | {titles}"
     entry = append_knowledge(

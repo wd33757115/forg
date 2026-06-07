@@ -886,6 +886,10 @@ make report
 docker compose up --build
 ```
 
+### 22.8 Grok 精细版对照
+
+完整逐项评估见 [`ROADMAP_EVALUATION.md`](ROADMAP_EVALUATION.md)。结论：**阶段 1–5 核心步骤均已签收**，无需重复实施。
+
 ### 22.7 后续可选（§B North Star）
 
 - 向量语义检索 / `memory/` 独立包

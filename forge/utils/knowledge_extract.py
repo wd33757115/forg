@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from forge.core.memory.graph import MemoryGraph
 from forge.core.state import ProjectState
 from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
+from forge.utils.knowledge_memory import rebuild_memory_graph
 
 
 def extract_reusable_knowledge(state: ProjectState) -> dict[str, Any]:
@@ -50,7 +50,4 @@ def extract_reusable_knowledge(state: ProjectState) -> dict[str, Any]:
     entry["outcome"] = outcome
 
     kb_update = append_knowledge_to_state(state, entry)
-    graph = MemoryGraph.from_knowledge_entries(
-        list(state.get("knowledge_base", [])) + kb_update["knowledge_base"][-1:]
-    )
-    return {**kb_update, "memory_graph": graph.to_dict()}
+    return {**kb_update, "memory_graph": rebuild_memory_graph(kb_update["knowledge_base"])}

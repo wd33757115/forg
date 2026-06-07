@@ -7,7 +7,10 @@ from typing import Any
 from forge.core.base_agent import BaseAgent
 from forge.agents.document_output import DocumentOutput
 from forge.core.state import ProjectState
-from forge.prompts.document_prompt import DOCUMENT_SYSTEM
+from forge.prompts.loader import load_prompts
+
+_doc = load_prompts("document")
+DOCUMENT_SYSTEM = _doc.DOCUMENT_SYSTEM
 from forge.utils.conversation import record_conversation
 from forge.utils.llm import invoke_llm
 from forge.utils.logger import get_logger

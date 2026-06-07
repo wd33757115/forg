@@ -13,18 +13,20 @@ from forge.agents.problem_classifier import (
     classify_problem,
     modules_for_problem_type,
 )
-from forge.agents.rule_pack_refs import fetch_relevant_rules, merge_rule_pack_references
+from forge.agents.rule_pack_refs import ensure_minimum_references, fetch_relevant_rules, merge_rule_pack_references
 from forge.agents.solution_output import RulePackReference, SolutionOption, SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
-from forge.prompts.problem_solver_prompt import (
-    PROBLEM_SOLVER_REACT_TASK,
-    PROBLEM_SOLVER_STRUCTURED_PROMPT,
-    PROBLEM_SOLVER_SYSTEM,
-)
+from forge.prompts.loader import load_prompts
+
+_ps_prompts = load_prompts("problem_solver")
+PROBLEM_SOLVER_SYSTEM = _ps_prompts.PROBLEM_SOLVER_SYSTEM
+PROBLEM_SOLVER_REACT_TASK = _ps_prompts.PROBLEM_SOLVER_REACT_TASK
+PROBLEM_SOLVER_STRUCTURED_PROMPT = _ps_prompts.PROBLEM_SOLVER_STRUCTURED_PROMPT
 from forge.tools.problem_solver_tools import run_tool_research
 from forge.utils.agent_context import build_handoff
 from forge.utils.conversation import record_conversation, record_thinking
-from forge.utils.knowledge import append_knowledge, append_knowledge_to_state, format_knowledge_context, search_knowledge
+from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
+from forge.utils.knowledge_memory import format_memory_context, search_similar_cases
 from forge.utils.llm import escape_braces_for_format
 from forge.utils.rule_pack_extract import extract_rule_ids_from_text
 
@@ -70,14 +72,13 @@ class ProblemSolverAgent(BaseAgent):
         fallback = run_tool_research(
             state, problem_statement, problem_type=problem_type
         )
-        keywords = [w for w in problem_statement.replace("，", " ").split() if len(w) >= 2][:6]
-        prior = search_knowledge(
+        prior = search_similar_cases(
             state,
-            tags=[problem_type],
-            keywords=keywords or None,
+            problem_type=problem_type,
+            problem_text=problem_statement,
             limit=3,
         )
-        prior_cases = format_knowledge_context(prior)
+        prior_cases = format_memory_context(prior)
         task = PROBLEM_SOLVER_REACT_TASK.format(
             problem_statement=problem_statement,
             problem_type=problem_type,
@@ -332,6 +333,12 @@ class ProblemSolverAgent(BaseAgent):
                 if sol.id == recommended:
                     sol.risk_level = "high"
 
+        rec = next((s for s in solutions if s.id == recommended), solutions[0] if solutions else None)
+        rationale = (
+            f"推荐 {recommended}：{rec.title if rec else ''}；"
+            f"基于 {len(rule_refs)} 条 Rule Pack 引用与问题类型 {problem_type}。"
+        )
+
         return SolutionOutput(
             problem_type=problem_type,
             problem_analysis=analysis,
@@ -339,6 +346,7 @@ class ProblemSolverAgent(BaseAgent):
             rule_pack_references=rule_refs,
             solutions=solutions,
             recommended_solution_id=recommended,
+            decision_rationale=rationale,
             next_actions=[
                 f"确认影响范围（项目 {state.get('project_id', 'N/A')}）",
                 f"执行推荐方案 {recommended}",
@@ -365,10 +373,12 @@ class ProblemSolverAgent(BaseAgent):
             extracted,
             limit=8,
         )
-        if len(output.rule_pack_references) < 3:
-            output.rule_pack_references = fetch_relevant_rules(
-                problem_type, problem_statement, limit=6, minimum=3
-            )
+        output.rule_pack_references = ensure_minimum_references(
+            output.rule_pack_references,
+            problem_type,
+            problem_statement,
+            minimum=3,
+        )
 
     def _validate_solution_output(
         self,
@@ -404,7 +414,23 @@ class ProblemSolverAgent(BaseAgent):
                 problem_type=ptype,
                 research_context=research_context,
             )
+        self._ensure_decision_rationale(output)
         return output
+
+    @staticmethod
+    def _ensure_decision_rationale(output: SolutionOutput) -> None:
+        """Fill decision_rationale when LLM/heuristic omitted it."""
+        if output.decision_rationale:
+            return
+        recommended = next(
+            (s for s in output.solutions if s.id == output.recommended_solution_id),
+            output.solutions[0] if output.solutions else None,
+        )
+        ref_count = len(output.rule_pack_references or [])
+        output.decision_rationale = (
+            f"推荐 {output.recommended_solution_id}：{recommended.title if recommended else ''}；"
+            f"基于 {ref_count} 条 Rule Pack 引用与问题类型 {output.problem_type}。"
+        )
 
     def _format_response(self, solution: SolutionOutput) -> str:
         """Human-readable response with embedded JSON block."""
@@ -474,6 +500,7 @@ class ProblemSolverAgent(BaseAgent):
             "root_causes": solution.root_causes,
             "dengbao_considerations": solution.dengbao_considerations,
             "itil_considerations": solution.itil_considerations,
+            "decision_rationale": solution.decision_rationale,
         }
 
         knowledge_entry = append_knowledge(
@@ -517,17 +544,19 @@ class ProblemSolverAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        working = {**state, **agent_updates}
         agent_updates.update(
             build_handoff(
-                {**state, **agent_updates},
+                working,
                 from_agent=self.name,
                 to_agent="compliance",
                 payload=handoff_payload,
             )
         )
+        working = {**state, **agent_updates}
         agent_updates.update(
             record_thinking(
-                state,
+                working,
                 agent=self.name,
                 thought=f"判定问题类型为 {problem_type}（{type_reason}）",
                 decision=f"推荐方案 {solution.recommended_solution_id}",
@@ -535,9 +564,10 @@ class ProblemSolverAgent(BaseAgent):
                 extra={"problem_type": problem_type, "attempt": attempt},
             )
         )
+        working = {**state, **agent_updates}
         agent_updates.update(
             record_conversation(
-                state,
+                working,
                 agent=self.name,
                 event="solution_generated",
                 summary=f"[{problem_type}] 方案 {solution.recommended_solution_id}（第 {attempt} 次）",

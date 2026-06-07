@@ -10,6 +10,21 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def summarize_handoff_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compact summary for conversation_history and reports."""
+    refs = payload.get("rule_pack_references") or []
+    rule_ids = [r.get("rule_id") for r in refs if isinstance(r, dict) and r.get("rule_id")]
+    rationale = (payload.get("decision_rationale") or "")[:200]
+    return {
+        "problem_type": payload.get("problem_type"),
+        "recommended_solution_id": payload.get("recommended_solution_id"),
+        "rule_pack_count": len(refs),
+        "rule_ids": rule_ids[:6],
+        "root_cause_count": len(payload.get("root_causes") or []),
+        "decision_rationale": rationale or None,
+    }
+
+
 def build_handoff(
     state: dict[str, Any],
     *,
@@ -32,12 +47,14 @@ def build_handoff(
         "timestamp": _utc_now(),
     }
     updates: dict[str, Any] = {"agent_context": ctx}
+    handoff_summary = summarize_handoff_payload(payload)
     updates.update(
         record_handoff(
             state,
             from_agent=from_agent,
             to_agent=to_agent,
             payload_keys=list(payload.keys()),
+            handoff_summary=handoff_summary,
         )
     )
     return updates

@@ -167,6 +167,51 @@ def test_agent_run_persists_structured_results(base_state):
     assert "overall_status" in structured
     assert "results" in structured
     assert "risk_level" in structured
+    explanations = structured.get("check_explanations") or []
+    assert explanations, "persisted compliance should include check_explanations"
+    assert explanations[0].get("rule_id") or explanations[0].get("explanation")
+
+
+def test_validate_solution_uses_handoff_context(base_state):
+    solution = SolutionOutput(
+        problem_analysis="登录认证故障",
+        root_causes=["证书过期"],
+        solutions=[
+            SolutionOption(
+                id="sol-a",
+                title="更新证书",
+                description="更新 SSO 证书",
+                approach="轮换证书",
+                compliance_impact="满足身份鉴别要求",
+                itil_guidance="变更管理",
+            )
+        ],
+        recommended_solution_id="sol-a",
+        decision_rationale="推荐 sol-a 基于 db-acs-001",
+        next_actions=["更新证书"],
+    )
+    handoff = {
+        "recommended_solution_id": "sol-a",
+        "decision_rationale": "推荐 sol-a 基于 db-acs-001",
+        "rule_pack_references": [{"rule_id": "db-acs-001", "title": "身份鉴别"}],
+    }
+    agent = ComplianceAgent()
+    output = agent.validate_solution(base_state, solution, handoff=handoff)
+    assert isinstance(output, ComplianceOutput)
+
+
+def test_problem_solver_conversation_history_chains_events():
+    from forge.agents.problem_solver import ProblemSolverAgent
+    from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP
+
+    state = create_initial_state("cmp-ps-hist")
+    state["active_workflow"] = WORKFLOW_PROBLEM_COMPLIANCE_LOOP
+    state["messages"] = [HumanMessage(content="登录401故障")]
+    result = ProblemSolverAgent().run(state)
+    events = [h.get("event") for h in result.get("conversation_history", [])]
+    assert "handoff" in events
+    assert "thinking" in events
+    assert "solution_generated" in events
 
 
 def test_problem_solver_sets_last_solution_in_loop():

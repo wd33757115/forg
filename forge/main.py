@@ -179,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
                 demo_seed=use_demo_seed,
                 auto_approve=args.auto_approve,
                 force_approval=force_approval,
+                execution_mode=args.execution_mode,
                 initial_state=loaded_state,
             )
         else:
@@ -191,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 demo_seed=use_demo_seed,
                 auto_approve=args.auto_approve,
                 force_approval=force_approval,
+                execution_mode=args.execution_mode,
             )
         result["_elapsed_ms"] = (time.perf_counter() - started) * 1000
     except KeyboardInterrupt:

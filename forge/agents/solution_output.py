@@ -69,3 +69,7 @@ class SolutionOutput(AgentOutputBase):
         default_factory=list,
         description="ITIL/ISO20000 process considerations",
     )
+    decision_rationale: str = Field(
+        default="",
+        description="Why the recommended solution was chosen (explainability)",
+    )

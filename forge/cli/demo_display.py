@@ -170,6 +170,10 @@ class ForgeDemoDisplay(ForgeDisplay):
         if causes:
             body.add_row("根因", "\n".join(f"• {c}" for c in causes[:4]))
 
+        rationale = solution.get("decision_rationale")
+        if rationale:
+            body.add_row("决策依据", rationale[:300])
+
         self._console.print(Panel(body, title="② ProblemSolver 方案", border_style="blue"))
 
     def _print_compliance_panel(self, result: dict[str, Any], stats: dict[str, Any]) -> None:
@@ -211,6 +215,14 @@ class ForgeDemoDisplay(ForgeDisplay):
                 miss += f"\n[dim]… 另有 {len(missing) - 5} 项[/]"
             content.add_row(Panel(miss, title="缺口", border_style="yellow"))
 
+        explanations = compliance.get("check_explanations") or []
+        if explanations:
+            expl_lines = "\n".join(
+                f"• [{e.get('status')}] `{e.get('rule_id', '—')}` {(e.get('explanation') or '')[:70]}"
+                for e in explanations[:6]
+            )
+            content.add_row(Panel(expl_lines, title="规则追溯", border_style="dim"))
+
         self._console.print(Panel(content, title="③ Compliance 合规检查", border_style="magenta"))
 
     def _print_compliance_retry_timeline(self, result: dict[str, Any]) -> None:
@@ -244,10 +256,17 @@ class ForgeDemoDisplay(ForgeDisplay):
                     f"风险={detail.get('risk_level')}"
                 )
             elif event == "handoff":
+                hs = detail.get("handoff_summary") or {}
+                rule_ids = ", ".join(hs.get("rule_ids") or [])[:60]
+                rationale = (hs.get("decision_rationale") or "")[:80]
                 branch.add(
                     f"{detail.get('from_agent')} → {detail.get('to_agent')} "
                     f"keys={detail.get('payload_keys', [])}"
                 )
+                if rule_ids:
+                    branch.add(f"Rule Pack: {rule_ids}")
+                if rationale:
+                    branch.add(f"决策: {rationale}")
 
         self._console.print(Panel(tree, border_style="yellow", title="合规重试 & Handoff"))
 
@@ -379,9 +398,15 @@ class ForgeDemoDisplay(ForgeDisplay):
         lines = []
         for h in handoffs[-6:]:
             d = h.get("detail") or {}
+            hs = d.get("handoff_summary") or {}
+            extra = ""
+            if hs.get("rule_ids"):
+                extra = f" | rules={', '.join(hs['rule_ids'][:4])}"
+            if hs.get("decision_rationale"):
+                extra += f" | {hs['decision_rationale'][:60]}"
             lines.append(
                 f"• {d.get('from_agent')} → [bold]{d.get('to_agent')}[/] "
-                f"({', '.join(d.get('payload_keys') or [])})"
+                f"({', '.join(d.get('payload_keys') or [])}){extra}"
             )
         self._console.print(Panel("\n".join(lines), title="Agent Handoff", border_style="dim"))
 

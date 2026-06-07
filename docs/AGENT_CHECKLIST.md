@@ -21,6 +21,7 @@
 ## 4. Prompts
 
 - [ ] `forge/prompts/<name>/prompts.py` — SYSTEM / REACT / STRUCTURED
+- [ ] 在 `forge/prompts/loader.py` 注册模块；Agent 通过 `load_prompts("<name>")` 引用，**不**直引 `prompts.<name>.prompts`
 
 ## 5. Supervisor 路由（如需要）
 

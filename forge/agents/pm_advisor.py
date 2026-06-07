@@ -9,11 +9,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from forge.core.base_agent import BaseAgent
 from forge.agents.pm_advisor_output import ActionItem, PMAdvisorOutput, RiskItem
 from forge.core.state import ProjectState
-from forge.prompts.pm_advisor_prompt import (
-    PM_ADVISOR_REACT_TASK,
-    PM_ADVISOR_STRUCTURED_PROMPT,
-    PM_ADVISOR_SYSTEM,
-)
+from forge.prompts.loader import load_prompts
+
+_pm = load_prompts("pm_advisor")
+PM_ADVISOR_REACT_TASK = _pm.PM_ADVISOR_REACT_TASK
+PM_ADVISOR_STRUCTURED_PROMPT = _pm.PM_ADVISOR_STRUCTURED_PROMPT
+PM_ADVISOR_SYSTEM = _pm.PM_ADVISOR_SYSTEM
 from forge.tools.pm_advisor_tools import run_pm_advisor_research
 from forge.utils.conversation import record_conversation
 from forge.utils.llm import escape_braces_for_format

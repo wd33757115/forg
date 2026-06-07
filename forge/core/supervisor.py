@@ -104,12 +104,14 @@ class Supervisor:
     """
     Central orchestrator for the Forge agent graph.
 
-    Closed-loop flow (problem-solving queries):
-        Supervisor → ProblemSolver → (Security|Operations)* → Compliance
-            → (retry)* → Document → PMAdvisor → Finalize
+    Structured flow (problem-solving)::
 
-    Specialist routing uses specialist_queue (security / operations) after ProblemSolver.
-    Standalone Security/Operations/Compliance flows route to a single entry specialist.
+        Supervisor.plan → ProblemSolver → specialist_queue* → Compliance
+            → supervisor_post_compliance → (retry ≤2 | Document)
+            → PMAdvisor → Execution → ApprovalGate → Finalize
+
+    Routing tables live in ``forge.core.supervisor_routing``; this class focuses on
+    plan building, orchestration context, and ``next_agent`` decisions.
     """
 
     def __init__(self, rule_pack_path: str = DEFAULT_PACK_FILE) -> None:
@@ -148,7 +150,23 @@ class Supervisor:
         return any(kw in content for kw in problem_keywords)
 
     def _is_document_intent(self, content: str) -> bool:
-        return any(kw in content for kw in ("文档", "document", "报告", "方案", "材料", "大纲"))
+        """Document-only requests — exclude problem-solving phrasing like 处置方案."""
+        return any(
+            kw in content
+            for kw in (
+                "生成文档",
+                "生成资料",
+                "资料生成",
+                "写文档",
+                "写报告",
+                "项目文档",
+                "文档",
+                "document",
+                "报告",
+                "材料",
+                "大纲",
+            )
+        )
 
     def _is_security_intent(self, content: str) -> bool:
         """等保 / 安全 / 测评相关意图 — 优先 SecurityAgent。"""

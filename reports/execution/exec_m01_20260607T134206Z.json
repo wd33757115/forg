@@ -1,0 +1,172 @@
+{
+  "run_id": "m01",
+  "project_id": "v11-manifest",
+  "created_at": "2026-06-07T13:42:06.397413+00:00",
+  "tasks": [
+    {
+      "id": "exec-m01-rem-0",
+      "task_type": "remediation",
+      "title": "整改: [base_si|si-wbs-001] WBS 完整性: [rule_id=si-wbs-001] WBS 缺失: requirements; WBS 缺失:",
+      "description": "[base_si|si-wbs-001] WBS 完整性: [rule_id=si-wbs-001] WBS 缺失: requirements; WBS 缺失: implementation; WBS 缺失: testing; WBS 缺失: acceptance",
+      "status": "ready",
+      "priority": "P1",
+      "source": "compliance",
+      "related_rules": [
+        "db-acs-001",
+        "db-aud-001",
+        "si-wbs-001",
+        "si-ms-001",
+        "si-ms-002",
+        "si-doc-001",
+        "si-int-001",
+        "si-ms-003"
+      ],
+      "created_at": "2026-06-07T13:42:06.395941+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-rem-1",
+      "task_type": "remediation",
+      "title": "整改: [base_si|si-int-001] 实施规范符合度: [rule_id=si-int-001] WBS 缺失: implementation",
+      "description": "[base_si|si-int-001] 实施规范符合度: [rule_id=si-int-001] WBS 缺失: implementation",
+      "status": "ready",
+      "priority": "P1",
+      "source": "compliance",
+      "related_rules": [
+        "db-acs-001",
+        "db-aud-001",
+        "si-wbs-001",
+        "si-ms-001",
+        "si-ms-002",
+        "si-doc-001",
+        "si-int-001",
+        "si-ms-003"
+      ],
+      "created_at": "2026-06-07T13:42:06.395960+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-rem-2",
+      "task_type": "remediation",
+      "title": "整改: [base_si|si-ms-001] 项目启动里程碑: [rule_id=si-ms-001] Rule Pack 缺口: 缺少含 '项目章程' 的文档",
+      "description": "[base_si|si-ms-001] 项目启动里程碑: [rule_id=si-ms-001] Rule Pack 缺口: 缺少含 '项目章程' 的文档",
+      "status": "ready",
+      "priority": "P1",
+      "source": "compliance",
+      "related_rules": [
+        "db-acs-001",
+        "db-aud-001",
+        "si-wbs-001",
+        "si-ms-001",
+        "si-ms-002",
+        "si-doc-001",
+        "si-int-001",
+        "si-ms-003"
+      ],
+      "created_at": "2026-06-07T13:42:06.395967+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-rem-3",
+      "task_type": "remediation",
+      "title": "整改: [base_si|si-ms-001] 项目启动里程碑: [rule_id=si-ms-001] Rule Pack 缺口: 缺少含 '干系人登记' 的文档",
+      "description": "[base_si|si-ms-001] 项目启动里程碑: [rule_id=si-ms-001] Rule Pack 缺口: 缺少含 '干系人登记' 的文档",
+      "status": "ready",
+      "priority": "P1",
+      "source": "compliance",
+      "related_rules": [
+        "db-acs-001",
+        "db-aud-001",
+        "si-wbs-001",
+        "si-ms-001",
+        "si-ms-002",
+        "si-doc-001",
+        "si-int-001",
+        "si-ms-003"
+      ],
+      "created_at": "2026-06-07T13:42:06.395974+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-rem-4",
+      "task_type": "remediation",
+      "title": "整改: [base_si|si-ms-002] 设计评审里程碑: [rule_id=si-ms-002] Rule Pack 缺口: 缺少含 '概要设计' 的文档",
+      "description": "[base_si|si-ms-002] 设计评审里程碑: [rule_id=si-ms-002] Rule Pack 缺口: 缺少含 '概要设计' 的文档",
+      "status": "ready",
+      "priority": "P1",
+      "source": "compliance",
+      "related_rules": [
+        "db-acs-001",
+        "db-aud-001",
+        "si-wbs-001",
+        "si-ms-001",
+        "si-ms-002",
+        "si-doc-001",
+        "si-int-001",
+        "si-ms-003"
+      ],
+      "created_at": "2026-06-07T13:42:06.395979+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-pm-0",
+      "task_type": "project_action",
+      "title": "确认影响范围（项目 v11-manifest）",
+      "description": "确认影响范围（项目 v11-manifest）",
+      "status": "ready",
+      "priority": "P0",
+      "source": "pm_advisor",
+      "related_rules": [],
+      "created_at": "2026-06-07T13:42:06.395985+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-pm-1",
+      "task_type": "project_action",
+      "title": "执行推荐方案 sol-a",
+      "description": "执行推荐方案 sol-a",
+      "status": "ready",
+      "priority": "P0",
+      "source": "pm_advisor",
+      "related_rules": [],
+      "created_at": "2026-06-07T13:42:06.395990+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-pm-2",
+      "task_type": "project_action",
+      "title": "更新知识库并关联 Rule Pack rule_id",
+      "description": "更新知识库并关联 Rule Pack rule_id",
+      "status": "ready",
+      "priority": "P0",
+      "source": "pm_advisor",
+      "related_rules": [],
+      "created_at": "2026-06-07T13:42:06.395995+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-pm-3",
+      "task_type": "project_action",
+      "title": "如需变更，提交 ITIL RFC（itil-chg-001）",
+      "description": "如需变更，提交 ITIL RFC（itil-chg-001）",
+      "status": "ready",
+      "priority": "P0",
+      "source": "pm_advisor",
+      "related_rules": [],
+      "created_at": "2026-06-07T13:42:06.395999+00:00",
+      "metadata": {}
+    },
+    {
+      "id": "exec-m01-pm-4",
+      "task_type": "project_action",
+      "title": "整改 WBS 完整性 — rule_id=si-wbs-001，参考 si-wbs-001",
+      "description": "整改 WBS 完整性 — rule_id=si-wbs-001，参考 si-wbs-001",
+      "status": "ready",
+      "priority": "P1",
+      "source": "pm_advisor",
+      "related_rules": [],
+      "created_at": "2026-06-07T13:42:06.396004+00:00",
+      "metadata": {}
+    }
+  ]
+}

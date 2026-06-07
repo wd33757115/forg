@@ -95,6 +95,7 @@ def test_record_handoff_in_conversation():
     handoffs = [h for h in state["conversation_history"] if h.get("event") == "handoff"]
     assert len(handoffs) == 1
     assert handoffs[0]["detail"]["to_agent"] == "compliance"
+    assert "handoff_summary" in handoffs[0]["detail"]
 
     # direct API
     state2 = create_initial_state("handoff-2")

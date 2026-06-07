@@ -65,16 +65,25 @@ def record_handoff(
     from_agent: str,
     to_agent: str,
     payload_keys: list[str] | None = None,
+    handoff_summary: dict[str, Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Record structured handoff between agents in conversation_history."""
+    summary = handoff_summary or {}
+    short = summary.get("recommended_solution_id") or summary.get("problem_type") or ""
+    summary_line = f"传递上下文给 {to_agent}"
+    if short:
+        summary_line += f" ({short})"
+    detail: dict[str, Any] = {
+        "from_agent": from_agent,
+        "to_agent": to_agent,
+        "payload_keys": payload_keys or [],
+    }
+    if handoff_summary:
+        detail["handoff_summary"] = handoff_summary
     return record_conversation(
         state,
         agent=from_agent,
         event="handoff",
-        summary=f"传递上下文给 {to_agent}",
-        detail={
-            "from_agent": from_agent,
-            "to_agent": to_agent,
-            "payload_keys": payload_keys or [],
-        },
+        summary=summary_line,
+        detail=detail,
     )

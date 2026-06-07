@@ -74,6 +74,10 @@ def generate_run_report(
             lines.append(f"- `{r.get('rule_id', '?')}` {r.get('title', '')}")
         lines.append("")
 
+    rationale = solution.get("decision_rationale")
+    if rationale:
+        lines.extend(["### 决策依据", "", rationale, ""])
+
     lines.extend(
         [
             "## Compliance 检查结果",
@@ -90,6 +94,16 @@ def generate_run_report(
         lines.append("### 合规缺口")
         for m in missing[:10]:
             lines.append(f"- {m}")
+        lines.append("")
+
+    explanations = compliance.get("check_explanations") or []
+    if explanations:
+        lines.append("### 合规检查追溯 (rule_id)")
+        for e in explanations[:12]:
+            lines.append(
+                f"- `[{e.get('status', '?')}]` `{e.get('rule_id', '—')}` "
+                f"({e.get('module', '?')}) {e.get('explanation', '')[:120]}"
+            )
         lines.append("")
 
     retry_events = [h for h in history if h.get("event") in ("compliance_retry", "compliance_check")]
@@ -142,6 +156,10 @@ def generate_run_report(
             lines.append(f"- [{r.get('status')}] {r.get('task_id')}: {r.get('summary', '')}")
         lines.append("")
 
+    key_decisions = _format_key_decisions(history, state)
+    if key_decisions:
+        lines.extend(["## 关键决策", "", key_decisions, ""])
+
     lines.extend(["## 流水线追踪 (pipeline_trace)", ""])
     if trace:
         lines.append("| Agent | 状态 | 耗时 | 输入摘要 | 输出摘要 |")
@@ -170,9 +188,13 @@ def generate_run_report(
         lines.extend(["## Agent Handoff", ""])
         for h in handoffs:
             d = h.get("detail") or {}
+            hs = d.get("handoff_summary") or {}
+            extra = ""
+            if hs.get("rule_ids"):
+                extra = f" | rules: {', '.join(hs['rule_ids'][:4])}"
             lines.append(
                 f"- {d.get('from_agent')} → **{d.get('to_agent')}** "
-                f"({', '.join(d.get('payload_keys') or [])})"
+                f"({', '.join(d.get('payload_keys') or [])}){extra}"
             )
         lines.append("")
 
@@ -186,6 +208,50 @@ def generate_run_report(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _format_key_decisions(history: list[dict[str, Any]], state: dict[str, Any]) -> str:
+    """Summarize supervisor routes, thinking decisions, compliance retries, approval."""
+    lines: list[str] = []
+    for h in history:
+        event = h.get("event", "")
+        agent = h.get("agent", "?")
+        summary = h.get("summary", "")
+        detail = h.get("detail") or {}
+        if event == "thinking":
+            decision = detail.get("decision") or summary
+            evidence = ", ".join(detail.get("evidence") or [])[:80]
+            extra = f" | 证据: {evidence}" if evidence else ""
+            lines.append(f"- **{agent}**（思考）: {decision}{extra}")
+        elif event == "route":
+            lines.append(
+                f"- **Supervisor**（路由）: → {detail.get('next_agent', '?')} — {summary}"
+            )
+        elif event == "compliance_retry":
+            lines.append(f"- **合规重试**: {summary}")
+        elif event == "approval_decision":
+            lines.append(
+                f"- **审批门控**: {detail.get('approval_status', summary)} "
+                f"(pending={detail.get('pending_count', 0)})"
+            )
+        elif event == "handoff":
+            hs = detail.get("handoff_summary") or {}
+            rule_part = ""
+            if hs.get("rule_ids"):
+                rule_part = f" | rules: {', '.join(hs['rule_ids'][:4])}"
+            rat = (hs.get("decision_rationale") or "")[:100]
+            rat_part = f" | {rat}" if rat else ""
+            lines.append(
+                f"- **Handoff**: {detail.get('from_agent')} → {detail.get('to_agent')}"
+                f"{rule_part}{rat_part}"
+            )
+    conf = state.get("last_confidence_result") or {}
+    if conf.get("recommendation"):
+        lines.append(
+            f"- **置信度结论**: {conf.get('score', state.get('confidence_score'))} "
+            f"→ {conf.get('recommendation')} ({conf.get('level', '')})"
+        )
+    return "\n".join(lines[:20])
 
 
 def _question_from_history(history: list[dict[str, Any]]) -> str:

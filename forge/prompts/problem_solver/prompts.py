@@ -88,6 +88,7 @@ PROBLEM_SOLVER_STRUCTURED_PROMPT = """基于问题与调研材料，输出 **Sol
 | rule_pack_references | **≥3 条** `[{{"rule_id","module","title","relevance"}}]` |
 | solutions | ≥2 个，含 id/title/description/approach/trade_offs/compliance_impact/itil_guidance/estimated_effort/risk_level |
 | recommended_solution_id | 必须存在于 solutions |
+| decision_rationale | 1–3 句：为何推荐该方案，须引用 ≥1 条 rule_id |
 | next_actions | ≥3 条，含责任角色 |
 | dengbao_considerations | 等保控制项列表（含 rule_id） |
 | itil_considerations | ITIL 流程考量（含 rule_id） |

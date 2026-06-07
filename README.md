@@ -93,8 +93,19 @@ copy .env.example .env
 .\run.bat --type security --no-feedback              # Rich Demo
 .\run.bat --type security --plain --no-feedback      # ANSI 旧输出
 .\run.bat --type security --auto-approve --no-feedback   # 半自治：自动审批执行
+.\run.bat --type security --auto-approve --execution-mode local_manifest --no-feedback  # 写执行清单到 reports/execution/
 .\run.bat --load .forge_state/cli-demo.json --approve "继续"  # 批准待审任务
 ```
+
+### v1.1 执行后端与知识闭环
+
+| 模式 | 说明 |
+|------|------|
+| `simulate`（默认） | 内存模拟执行，标记任务为 `executed` |
+| `local_manifest` | 将 ready 任务写入 `reports/execution/exec_{run_id}_*.json`，供外部系统消费 |
+| `webhook` | POST 到 `FORGE_EXECUTION_WEBHOOK_URL`（未配置时回退 simulate） |
+
+每次运行 finalize 会将会话摘要写入 `knowledge_base` 并重建 `memory_graph`；后续 ProblemSolver 通过 `search_similar_cases` 注入历史案例，并影响置信度 `history_factor`。
 
 归档样例报告见 [`reports/`](reports/) 目录。
 

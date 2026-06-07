@@ -10,6 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProvider = Literal["deepseek", "openai", "aliyun", "volcengine"]
 ComplianceCheckMode = Literal["strict", "advisory", "lenient"]
+ExecutionMode = Literal["simulate", "local_manifest", "webhook"]
 
 
 def _load_dotenv_safe() -> None:
@@ -62,6 +63,25 @@ class ForgeSettings(BaseSettings):
     compliance_check_mode: ComplianceCheckMode = Field(
         default="advisory",
         validation_alias=AliasChoices("FORGE_COMPLIANCE_CHECK_MODE", "COMPLIANCE_CHECK_MODE"),
+    )
+
+    # v1.1 execution backend (simulate | local_manifest | webhook)
+    execution_mode: ExecutionMode = Field(
+        default="simulate",
+        validation_alias=AliasChoices("FORGE_EXECUTION_MODE", "EXECUTION_MODE"),
+    )
+    execution_manifest_dir: str = Field(
+        default="reports/execution",
+        validation_alias="FORGE_EXECUTION_MANIFEST_DIR",
+    )
+    execution_webhook_url: str | None = Field(
+        default=None,
+        validation_alias="FORGE_EXECUTION_WEBHOOK_URL",
+    )
+    execution_webhook_timeout: float = Field(
+        default=30.0,
+        ge=1.0,
+        validation_alias="FORGE_EXECUTION_WEBHOOK_TIMEOUT",
     )
 
     # Logging / web

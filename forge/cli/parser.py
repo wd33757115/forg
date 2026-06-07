@@ -74,6 +74,12 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="自动批准待审执行任务（演示半自治流程）",
     )
     parser.add_argument(
+        "--execution-mode",
+        choices=["simulate", "local_manifest", "webhook"],
+        default=None,
+        help="执行层后端：simulate（默认）| local_manifest（写 JSON 清单）| webhook",
+    )
+    parser.add_argument(
         "--approve",
         action="store_true",
         help="恢复状态时批准 pending 审批请求",

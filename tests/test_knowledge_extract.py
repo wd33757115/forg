@@ -22,7 +22,9 @@ def test_extract_reusable_knowledge():
     assert entry["type"] == "case"
     assert entry["outcome"] == "partial"
     assert "db-001" in entry["related_rules"]
-    assert patch.get("memory_graph")
+    graph = patch.get("memory_graph") or {}
+    assert graph.get("nodes")
+    assert len(graph["nodes"]) >= 2
 
 
 def test_memory_graph_from_entries():

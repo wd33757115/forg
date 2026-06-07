@@ -24,6 +24,7 @@ def run_forge(
     demo_seed: bool = False,
     auto_approve: bool = False,
     force_approval: str | None = None,
+    execution_mode: str | None = None,
     initial_state: ProjectState | None = None,
 ) -> dict:
     """Execute the full Forge workflow from a fresh or resumed ProjectState."""
@@ -48,6 +49,8 @@ def run_forge(
             state["auto_approve"] = True
         if force_approval:
             state["_force_approval"] = force_approval
+        if execution_mode:
+            state["execution_mode"] = execution_mode
     else:
         state = prepare_state_for_run(
             initial_state,
@@ -62,6 +65,8 @@ def run_forge(
             state["auto_approve"] = True
         if force_approval:
             state["_force_approval"] = force_approval
+        if execution_mode:
+            state["execution_mode"] = execution_mode
 
     logger.info(
         "Starting workflow | run_id=%s project=%s",

@@ -9,11 +9,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from forge.core.base_agent import BaseAgent
 from forge.agents.security_output import SecurityControlAdvice, SecurityOutput, SecurityRiskItem
 from forge.core.state import ProjectState, WORKFLOW_PROBLEM_COMPLIANCE_LOOP
-from forge.prompts.security_prompt import (
-    SECURITY_REACT_TASK,
-    SECURITY_STRUCTURED_PROMPT,
-    SECURITY_SYSTEM,
-)
+from forge.prompts.loader import load_prompts
+
+_sec = load_prompts("security")
+SECURITY_REACT_TASK = _sec.SECURITY_REACT_TASK
+SECURITY_STRUCTURED_PROMPT = _sec.SECURITY_STRUCTURED_PROMPT
+SECURITY_SYSTEM = _sec.SECURITY_SYSTEM
 from forge.tools.security_tools import run_security_research
 from forge.utils.conversation import record_conversation
 from forge.utils.llm import escape_braces_for_format

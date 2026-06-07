@@ -176,3 +176,25 @@ def merge_rule_pack_references(
         if len(refs) >= limit:
             break
     return refs[:limit]
+
+
+def ensure_minimum_references(
+    refs: list[RulePackReference],
+    problem_type: ProblemType,
+    problem_text: str,
+    *,
+    minimum: int = 3,
+) -> list[RulePackReference]:
+    """Guarantee at least ``minimum`` canonical Rule Pack references."""
+    if len(refs) >= minimum:
+        return refs
+    padded = fetch_relevant_rules(problem_type, problem_text, minimum=minimum, limit=max(minimum, 6))
+    seen = {r.rule_id for r in refs}
+    merged = list(refs)
+    for ref in padded:
+        if ref.rule_id not in seen:
+            merged.append(ref)
+            seen.add(ref.rule_id)
+        if len(merged) >= minimum:
+            break
+    return merged

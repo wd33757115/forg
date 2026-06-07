@@ -178,6 +178,8 @@ class ProjectState(TypedDict):
     approval_status: str | None
     auto_approve: bool
     memory_graph: dict[str, Any] | None
+    # v1.1 execution backend override (simulate | local_manifest | webhook)
+    execution_mode: str | None
 
 
 def create_initial_state(
@@ -235,4 +237,5 @@ def create_initial_state(
         approval_status=None,
         auto_approve=False,
         memory_graph=None,
+        execution_mode=None,
     )

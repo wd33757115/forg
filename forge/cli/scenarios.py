@@ -35,20 +35,29 @@ DEMO_SCENARIOS: dict[str, DemoScenario] = {
     "security": DemoScenario(
         id="security",
         problem_type_hint="security",
-        question="等保三级登录401认证失败，请诊断根因并给出技术处置建议",
-        description="等保 / 身份鉴别场景（触发 ProblemSolver 闭环）",
+        question=(
+            "等保三级系统登录接口持续返回 401，审计日志显示认证失败激增。"
+            "请对照 dengbao_2.0 身份鉴别控制项诊断根因，给出可执行处置方案并引用具体 rule_id。"
+        ),
+        description="等保 / 身份鉴别（db-acs 系列 Rule Pack 引用 + 合规闭环）",
     ),
     "itil": DemoScenario(
         id="itil",
         problem_type_hint="itil",
-        question="ITIL事件：核心交换机故障导致业务中断与SLA违约，请诊断并给出处置建议",
-        description="ITIL 事件 / SLA 场景（触发 ProblemSolver 闭环）",
+        question=(
+            "P1 ITIL 事件：核心交换机故障导致多业务中断，SLA 已违约。"
+            "请按 itil-inc / itil-slm 流程给出事件分级、升级路径与恢复步骤，并引用 rule_id。"
+        ),
+        description="ITIL 事件 / SLA（itil_iso20000 Rule Pack + 合规校验）",
     ),
     "mixed": DemoScenario(
         id="mixed",
         problem_type_hint="mixed",
-        question="等保401认证失败同时核心交换机故障中断，请综合诊断根因",
-        description="安全 + 运维混合场景（触发 ProblemSolver 闭环）",
+        question=(
+            "等保三级登录 401 认证失败与核心交换机故障同时发生，安全审计与服务可用性均受影响。"
+            "请联合 dengbao_2.0 与 itil_iso20000 双轨诊断，给出联合应急方案并引用 ≥3 条 rule_id。"
+        ),
+        description="等保 + ITIL 混合（双模块 Rule Pack + handoff 到 Compliance）",
     ),
     "general": DemoScenario(
         id="general",

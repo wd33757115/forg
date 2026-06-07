@@ -20,7 +20,16 @@ def test_generate_run_report_sections():
         "check_mode": "advisory",
         "risk_level": "medium",
         "missing_items": ["缺口A"],
+        "check_explanations": [
+            {
+                "module": "dengbao_2.0",
+                "rule_id": "db-acs-001",
+                "status": "fail",
+                "explanation": "[FAIL] 身份鉴别 rule_id=db-acs-001: MFA 缺失",
+            }
+        ],
     }
+    state["last_solution"]["decision_rationale"] = "推荐 sol-1 基于 db-001"
     state["pipeline_trace"] = [
         {
             "agent": "problem_solver",
@@ -32,12 +41,21 @@ def test_generate_run_report_sections():
     ]
     state["conversation_history"] = [
         {"event": "compliance_retry", "agent": "supervisor", "summary": "重试", "detail": {}},
+        {
+            "event": "thinking",
+            "agent": "supervisor",
+            "summary": "路由",
+            "detail": {"decision": "进入 problem_solver", "evidence": ["security"]},
+        },
     ]
     md = generate_run_report(state, question="登录401", elapsed_ms=2000)
     assert "Forge 运行报告" in md
     assert "登录401" in md
     assert "pipeline_trace" in md
     assert "合规重试" in md
+    assert "关键决策" in md
+    assert "决策依据" in md
+    assert "合规检查追溯" in md
     assert "input_summary" not in md  # rendered in table, not raw key
     assert "problem_solver" in md
 
