@@ -13,20 +13,21 @@ from forge.core import create_initial_state
 
 
 def test_classify_hint_mismatch_warning():
-    _ptype, _reason, warning = classify_with_cli_hint(
+    _ptype, _reason, conflict = classify_with_cli_hint(
         "数据库连接池耗尽导致接口超时",
         "security",
     )
-    assert warning is not None
-    assert "security" in warning or "technical" in warning
+    assert conflict is not None
+    assert conflict.get("hinted_type") == "security"
+    assert conflict.get("auto_type") == "technical"
 
 
 def test_classify_hint_match_no_warning():
-    _ptype, _reason, warning = classify_with_cli_hint(
+    _ptype, _reason, conflict = classify_with_cli_hint(
         "用户登录401等保身份鉴别",
         "security",
     )
-    assert warning is None
+    assert conflict is None
 
 
 def test_validate_reasoning_contains_rule_id():

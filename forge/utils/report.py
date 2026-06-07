@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from forge.cli.stats import compute_run_stats
+from forge.utils.decision_summary import format_decision_summary_markdown
 
 
 def generate_run_report(
@@ -50,6 +51,8 @@ def generate_run_report(
         "",
         question or _question_from_history(history) or "（无）",
         "",
+        format_decision_summary_markdown(state, stats=stats).rstrip(),
+        "",
         "## 运行摘要",
         "",
         f"- Agent 调用: {stats.get('agents_success', 0)} 成功 / {stats.get('agents_failed', 0)} 失败",
@@ -57,16 +60,6 @@ def generate_run_report(
         f"- 合规重试: {stats.get('compliance_retries', 0)}",
         f"- 资料生成: {stats.get('documents_generated', 0)} 份",
         f"- 风险等级: {stats.get('risk_level', '—')}",
-        "",
-        "## 决策链路",
-        "",
-        f"1. **问题类型** → `{solution.get('problem_type', state.get('problem_type', '—'))}`",
-        f"2. **推荐方案** → `{solution.get('recommended_solution_id', '—')}`"
-        + (f"（自评置信度 {solution.get('confidence')}）" if solution.get("confidence") is not None else ""),
-        f"3. **合规结论** → {compliance.get('compliance_status', compliance.get('overall_status', '—'))}"
-        f"（{compliance.get('check_mode', '—')}）",
-        f"4. **会话置信度** → {state.get('confidence_score', '—')} / {state.get('confidence_recommendation', '—')}",
-        f"5. **审批执行** → {state.get('approval_status', '—')}",
         "",
         "## ProblemSolver 方案",
         "",
@@ -121,12 +114,20 @@ def generate_run_report(
 
     failed = compliance.get("failed_items") or []
     if failed:
-        lines.append("### 合规失败项")
+        lines.append("### 合规失败项 (failed_items)")
         for f in failed[:10]:
+            sev = f.get("severity", "—")
             lines.append(
                 f"- `[{f.get('status')}]` `{f.get('rule_id', '—')}` "
-                f"({f.get('module', '?')}) {f.get('title', '')}: {(f.get('description') or '')[:80]}"
+                f"**{sev}** ({f.get('module', '?')}) {f.get('title', '')}: "
+                f"{(f.get('description') or '')[:80]}"
             )
+            if f.get("suggestion"):
+                lines.append(f"  - 建议: {f['suggestion'][:140]}")
+        lines.append("")
+    elif matched:
+        lines.append("### 合规失败项")
+        lines.append("- （无 failed_items — 全部检查项通过或仅 advisory 记录）")
         lines.append("")
 
     suggestions = compliance.get("suggestions") or []
@@ -140,10 +141,14 @@ def generate_run_report(
     if explanations:
         lines.append("### 合规检查追溯 (rule_id)")
         for e in explanations[:12]:
+            sev = e.get("severity", "")
+            sev_part = f" **{sev}**" if sev else ""
             lines.append(
-                f"- `[{e.get('status', '?')}]` `{e.get('rule_id', '—')}` "
-                f"({e.get('module', '?')}) {e.get('explanation', '')[:120]}"
+                f"- `[{e.get('status', '?')}]` `{e.get('rule_id', '—')}`"
+                f"{sev_part} ({e.get('module', '?')}) {e.get('explanation', '')[:100]}"
             )
+            if e.get("suggestion") and e.get("status") in ("fail", "warning"):
+                lines.append(f"  - 建议: {e['suggestion'][:120]}")
         lines.append("")
 
     retry_events = [h for h in history if h.get("event") in ("compliance_retry", "compliance_check")]
@@ -200,7 +205,36 @@ def generate_run_report(
     if key_decisions:
         lines.extend(["## 关键决策", "", key_decisions, ""])
 
-    lines.extend(["## 流水线追踪 (pipeline_trace)", ""])
+    appendix = _format_trace_appendix(trace, history)
+    if appendix:
+        lines.extend(appendix)
+
+    if errors:
+        lines.extend(["## 错误与降级", ""])
+        for err in errors:
+            lines.append(f"- **{err.get('agent')}**: {err.get('error', err)}")
+        degraded = state.get("degraded_agents") or []
+        if degraded:
+            lines.append(f"- 降级 Agent: {', '.join(degraded)}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_trace_appendix(
+    trace: list[dict[str, Any]], history: list[dict[str, Any]]
+) -> list[str]:
+    """Detailed pipeline / thinking / handoff — moved to report appendix (C2)."""
+    lines: list[str] = []
+    has_trace = bool(trace)
+    thinking = [h for h in history if h.get("event") == "thinking"]
+    handoffs = [h for h in history if h.get("event") == "handoff"]
+    if not has_trace and not thinking and not handoffs:
+        return lines
+
+    lines.extend(["## 附录：完整追踪", ""])
+
+    lines.extend(["### 流水线 (pipeline_trace)", ""])
     if trace:
         lines.append("| Agent | 状态 | 耗时 | 输入摘要 | 输出摘要 |")
         lines.append("|-------|------|------|----------|----------|")
@@ -216,16 +250,14 @@ def generate_run_report(
         lines.append("（无 pipeline_trace）")
     lines.append("")
 
-    thinking = [h for h in history if h.get("event") == "thinking"]
     if thinking:
-        lines.extend(["## 思考链路", ""])
+        lines.extend(["### 思考链路", ""])
         for h in thinking[-12:]:
             lines.append(f"- **{h.get('agent')}**: {h.get('summary', '')}")
         lines.append("")
 
-    handoffs = [h for h in history if h.get("event") == "handoff"]
     if handoffs:
-        lines.extend(["## Agent Handoff", ""])
+        lines.extend(["### Agent Handoff", ""])
         for h in handoffs:
             d = h.get("detail") or {}
             hs = d.get("handoff_summary") or {}
@@ -238,16 +270,7 @@ def generate_run_report(
             )
         lines.append("")
 
-    if errors:
-        lines.extend(["## 错误与降级", ""])
-        for err in errors:
-            lines.append(f"- **{err.get('agent')}**: {err.get('error', err)}")
-        degraded = state.get("degraded_agents") or []
-        if degraded:
-            lines.append(f"- 降级 Agent: {', '.join(degraded)}")
-        lines.append("")
-
-    return "\n".join(lines)
+    return lines
 
 
 def _format_key_decisions(history: list[dict[str, Any]], state: dict[str, Any]) -> str:

@@ -18,6 +18,12 @@ class RulePackReference(BaseModel):
         default="",
         description="Provenance: keyword | scored | minimum_pad | research | llm",
     )
+    relevance_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="Heuristic pertinence to the problem (higher = more specific)",
+    )
 
 
 class SolutionOption(BaseModel):

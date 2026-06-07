@@ -44,6 +44,26 @@ def _graph_boosted_entry_ids(
     return {b for b in boosted if b}
 
 
+def _keyword_hit_score(entry: dict[str, Any], keywords: list[str], problem_text: str) -> float:
+    """Weighted keyword overlap between case and current problem."""
+    blob = " ".join(
+        [
+            str(entry.get("content", "")),
+            " ".join(entry.get("tags") or []),
+            str((entry.get("metadata") or {})),
+        ]
+    ).lower()
+    lower = problem_text.lower()
+    score = 0.0
+    for kw in keywords:
+        kl = kw.lower()
+        if kl in blob:
+            score += 1.5
+        if kl in lower and kl in blob:
+            score += 0.5
+    return score
+
+
 def search_similar_cases(
     state: ProjectState | dict[str, Any],
     *,
@@ -55,34 +75,50 @@ def search_similar_cases(
     Rank prior cases by tag/keyword match and memory_graph rule linkage.
 
     Used by ProblemSolver before ReAct to inject institutional memory.
+    Each result may include ``match_reason`` and ``match_score`` (A5).
     """
     keywords = [w for w in problem_text.replace("，", " ").split() if len(w) >= 2][:8]
     rule_ids = extract_rule_ids_from_text(problem_text)
+    tag_candidates = [problem_type]
+    if problem_type == "service_management":
+        tag_candidates.append("itil")
     base = search_knowledge(
         state,
-        tags=[problem_type],
+        tags=tag_candidates,
         keywords=keywords or None,
-        limit=limit * 2,
+        limit=limit * 3,
     )
     boosted_ids = _graph_boosted_entry_ids(state.get("memory_graph"), rule_ids)
-    scored: list[tuple[float, dict[str, Any]]] = []
+    scored: list[tuple[float, str, dict[str, Any]]] = []
     seen: set[str] = set()
     for entry in base:
-        eid = entry.get("id", id(entry))
+        eid = str(entry.get("id", id(entry)))
         if eid in seen:
             continue
         seen.add(eid)
         score = 1.0
+        reasons: list[str] = ["tag"]
         if eid in boosted_ids:
             score += 2.0
+            reasons.append("memory_graph")
         entry_rules = set(entry.get("related_rules") or [])
-        if rule_ids and entry_rules.intersection(rule_ids):
+        overlap = rule_ids and entry_rules.intersection(rule_ids)
+        if overlap:
             score += 1.5
+            reasons.append(f"rule:{','.join(sorted(overlap)[:2])}")
+        kw_score = _keyword_hit_score(entry, keywords, problem_text)
+        if kw_score > 0:
+            score += kw_score
+            reasons.append("keyword")
         if entry.get("outcome") in ("success", "compliant", "resolved"):
             score += 0.5
-        scored.append((score, entry))
+            reasons.append("positive_outcome")
+        enriched = dict(entry)
+        enriched["match_score"] = round(score, 2)
+        enriched["match_reason"] = "+".join(reasons)
+        scored.append((score, enriched.get("match_reason", ""), enriched))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [e for _, e in scored[:limit]]
+    return [e for _, _, e in scored[:limit]]
 
 
 def format_memory_context(entries: list[dict[str, Any]]) -> str:
@@ -95,8 +131,10 @@ def format_memory_context(entries: list[dict[str, Any]]) -> str:
         outcome = entry.get("outcome") or "—"
         rules = ", ".join(entry.get("related_rules") or [])[:80]
         rules_part = f" | rules: {rules}" if rules else ""
+        match = entry.get("match_reason")
+        match_part = f" | match={match}" if match else ""
         lines.append(
             f"- [{entry.get('source', '?')}] outcome={outcome} ({tags}) "
-            f"{entry.get('content', '')[:180]}{rules_part}"
+            f"{entry.get('content', '')[:180]}{rules_part}{match_part}"
         )
     return "\n".join(lines)

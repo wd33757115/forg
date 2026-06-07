@@ -1,0 +1,59 @@
+{
+  "strict": {
+    "failed_count": 48,
+    "matched_count": 26,
+    "compliance_status": "non_compliant",
+    "failed_rule_ids": [
+      "si-wbs-001",
+      "si-int-001",
+      "si-ms-001",
+      "si-ms-001",
+      "si-ms-002",
+      "si-ms-002",
+      "si-ms-003",
+      "si-ms-004",
+      "si-ms-004",
+      "si-doc-001",
+      "si-doc-001",
+      "si-doc-002"
+    ]
+  },
+  "advisory": {
+    "failed_count": 46,
+    "matched_count": 26,
+    "compliance_status": "non_compliant",
+    "failed_rule_ids": [
+      "si-wbs-001",
+      "si-int-001",
+      "si-ms-001",
+      "si-ms-001",
+      "si-ms-002",
+      "si-ms-002",
+      "si-ms-003",
+      "si-ms-004",
+      "si-ms-004",
+      "si-doc-001",
+      "si-doc-001",
+      "si-doc-002"
+    ]
+  },
+  "lenient": {
+    "failed_count": 33,
+    "matched_count": 26,
+    "compliance_status": "non_compliant",
+    "failed_rule_ids": [
+      "si-wbs-001",
+      "si-ms-001",
+      "si-ms-001",
+      "si-ms-002",
+      "si-ms-002",
+      "si-ms-003",
+      "si-ms-004",
+      "si-ms-004",
+      "si-doc-001",
+      "si-doc-001",
+      "si-doc-002",
+      "si-doc-002"
+    ]
+  }
+}

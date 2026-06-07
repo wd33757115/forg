@@ -105,11 +105,12 @@ def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType
 def classify_with_cli_hint(
     text: str,
     hint: str | None,
-) -> tuple[ProblemType, str, str | None]:
+) -> tuple[ProblemType, str, dict[str, str] | None]:
     """
-    Classify using CLI hint when present; return optional warning if auto-type differs.
+    Classify using CLI hint when present.
 
-    Used for W1-8: log when ``--type`` disagrees with keyword-only classification.
+    When hint disagrees with keyword-only classification, returns a
+    ``classification_conflict`` dict for state / logging (A3).
     """
     if not hint:
         ptype, reason = classify_problem(text)
@@ -117,13 +118,20 @@ def classify_with_cli_hint(
 
     hinted, reason = classify_problem(text, hint=hint)
     auto, auto_reason = classify_problem(text, hint=None)
-    warning: str | None = None
-    if auto != hinted:
-        warning = (
+    if auto == hinted:
+        return hinted, reason, None
+
+    return hinted, reason, {
+        "hint": hint,
+        "hinted_type": hinted,
+        "auto_type": auto,
+        "hint_reason": reason,
+        "auto_reason": auto_reason,
+        "warning": (
             f"CLI --type={hint} 映射为 {hinted}，"
             f"但自动分类为 {auto}（{auto_reason}）"
-        )
-    return hinted, reason, warning
+        ),
+    }
 
 
 def modules_for_problem_type(problem_type: ProblemType) -> list[str]:

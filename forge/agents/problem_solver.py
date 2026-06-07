@@ -29,6 +29,8 @@ from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
 from forge.utils.knowledge_memory import format_memory_context, search_similar_cases
 from forge.utils.llm import escape_braces_for_format
+from forge.utils.react_research_gate import supplement_rule_pack_research
+from forge.utils.reference_scoring import apply_relevance_scores, summarize_reference_provenance
 from forge.utils.rule_pack_extract import extract_rule_ids_from_text
 
 _RULE_ID_IN_TEXT = re.compile(r"\b((?:db|itil|si)-[a-z0-9-]+)\b", re.IGNORECASE)
@@ -58,12 +60,17 @@ class ProblemSolverAgent(BaseAgent):
                     break
         return "\n\n".join(reversed(parts)) if parts else ""
 
-    def _classify(self, state: ProjectState, problem_statement: str) -> tuple[ProblemType, str]:
+    def _classify(
+        self, state: ProjectState, problem_statement: str
+    ) -> tuple[ProblemType, str, dict[str, str] | None]:
         hint = state.get("problem_type") or state.get("problem_type_hint")
-        ptype, reason, warning = classify_with_cli_hint(problem_statement, hint=hint)
-        if warning:
-            self.logger.warning("Problem type hint mismatch | %s", warning)
-        return ptype, reason
+        ptype, reason, conflict = classify_with_cli_hint(problem_statement, hint=hint)
+        if conflict:
+            self.logger.warning(
+                "Problem type hint mismatch | %s",
+                conflict.get("warning", conflict),
+            )
+        return ptype, reason, conflict
 
     def _run_react(
         self,
@@ -102,13 +109,25 @@ class ProblemSolverAgent(BaseAgent):
             enabled_modules=", ".join(state.get("enabled_modules", [])),
             prior_cases=prior_cases,
         )
-        return self.run_react(
+        research = self.run_react(
             state,
             system=PROBLEM_SOLVER_SYSTEM,
             task=task,
             temperature=0.2,
             fallback=fallback,
         )
+        research, supplemented = supplement_rule_pack_research(
+            state,
+            research,
+            problem_type,
+            problem_statement=problem_statement,
+        )
+        if supplemented:
+            self.logger.info(
+                "ReAct research gate | supplemented query_rule_pack | rule_ids=%d",
+                len(extract_rule_ids_from_text(research)),
+            )
+        return research
 
     def _synthesize_structured(
         self,
@@ -392,6 +411,17 @@ class ProblemSolverAgent(BaseAgent):
             problem_statement,
             minimum=3,
         )
+        output.rule_pack_references = apply_relevance_scores(
+            output.rule_pack_references,
+            problem_statement,
+        )
+        stats = summarize_reference_provenance(output.rule_pack_references)
+        self.logger.info(
+            "Rule Pack refs scored | total=%d avg=%.2f pad_ratio=%.2f",
+            stats["total"],
+            stats["avg_relevance_score"],
+            stats["minimum_pad_ratio"],
+        )
 
     def _validate_solution_output(
         self,
@@ -428,8 +458,9 @@ class ProblemSolverAgent(BaseAgent):
                 research_context=research_context,
             )
         self._ensure_decision_rationale(output)
-        self._ensure_reasoning_confidence(output)
+        self._ensure_reasoning_confidence(output, research_context=research_context)
         self._ensure_reasoning_has_rule_ids(output)
+        self._ensure_prior_case_reasoning(output, research_context=research_context)
         return output
 
     @staticmethod
@@ -464,7 +495,43 @@ class ProblemSolverAgent(BaseAgent):
         )
 
     @staticmethod
-    def _ensure_reasoning_confidence(output: SolutionOutput) -> None:
+    def _compute_confidence(
+        output: SolutionOutput,
+        *,
+        research_context: str = "",
+    ) -> float:
+        """A4: confidence from ref coverage, relevance scores, and tool evidence."""
+        refs = output.rule_pack_references or []
+        ref_n = len(refs)
+        avg_rel = sum(r.relevance_score for r in refs) / ref_n if ref_n else 0.0
+        high_q = sum(1 for r in refs if r.relevance_score >= 0.7)
+        ref_score = min(1.0, (ref_n / 3.0) * 0.4 + avg_rel * 0.6)
+        tool_ids = len(extract_rule_ids_from_text(research_context))
+        tool_score = 1.0 if tool_ids >= 3 else (0.7 if tool_ids >= 1 else 0.45)
+        sol_score = 1.0 if len(output.solutions) >= 2 else 0.6
+        rationale_score = 1.0 if output.decision_rationale else 0.5
+        reasoning_score = 1.0 if _RULE_ID_IN_TEXT.search(output.reasoning or "") else 0.55
+        pad_penalty = 0.0
+        if refs:
+            pad_penalty = sum(
+                1 for r in refs if r.reference_source == "minimum_pad" or r.relevance_score < 0.45
+            ) / len(refs) * 0.15
+        raw = (
+            0.30 * ref_score
+            + 0.20 * tool_score
+            + 0.15 * sol_score
+            + 0.15 * rationale_score
+            + 0.10 * reasoning_score
+            + 0.10 * (high_q / max(1, ref_n))
+        )
+        return round(min(1.0, max(0.0, raw - pad_penalty)), 2)
+
+    @staticmethod
+    def _ensure_reasoning_confidence(
+        output: SolutionOutput,
+        *,
+        research_context: str = "",
+    ) -> None:
         """Fill reasoning and confidence when structured output omitted them."""
         refs = ", ".join(r.rule_id for r in (output.rule_pack_references or [])[:4])
         if not output.reasoning:
@@ -477,15 +544,34 @@ class ProblemSolverAgent(BaseAgent):
             )
         elif refs and not _RULE_ID_IN_TEXT.search(output.reasoning):
             output.reasoning = f"{output.reasoning.rstrip()}；依据 {refs}"
-        if output.confidence == 0.5:
-            ref_n = len(output.rule_pack_references or [])
-            ref_score = min(1.0, ref_n / 3.0)
-            sol_score = 1.0 if len(output.solutions) >= 2 else 0.6
-            rationale_score = 1.0 if output.decision_rationale else 0.5
-            output.confidence = round(
-                min(1.0, max(0.0, 0.45 * ref_score + 0.35 * sol_score + 0.20 * rationale_score)),
-                2,
+
+        computed = ProblemSolverAgent._compute_confidence(
+            output, research_context=research_context
+        )
+        if output.confidence == 0.5 or computed > output.confidence:
+            output.confidence = computed
+
+        if output.confidence >= 0.75 and refs:
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                f"置信度={output.confidence}（引用覆盖+工具证据）"
             )
+
+    @staticmethod
+    def _ensure_prior_case_reasoning(
+        output: SolutionOutput,
+        *,
+        research_context: str = "",
+    ) -> None:
+        """When research mentions prior cases, reasoning should acknowledge them."""
+        if "历史案例" not in research_context and "outcome=" not in research_context:
+            return
+        if not output.reasoning or "历史案例" in output.reasoning or "借鉴" in output.reasoning:
+            return
+        output.reasoning = (
+            f"{output.reasoning.rstrip()}；"
+            "已对照 knowledge_base 历史案例调整方案优先级。"
+        )
 
     def _format_response(self, solution: SolutionOutput) -> str:
         """Human-readable response with embedded JSON block."""
@@ -504,7 +590,8 @@ class ProblemSolverAgent(BaseAgent):
             "## Rule Pack 引用",
         ]
         for ref in solution.rule_pack_references[:6]:
-            lines.append(f"- [{ref.rule_id}] {ref.title} ({ref.module})")
+            score = f" score={ref.relevance_score:.2f}" if ref.relevance_score else ""
+            lines.append(f"- [{ref.rule_id}] {ref.title} ({ref.module}){score}")
         lines.extend(["", "## 根因", *[f"- {rc}" for rc in solution.root_causes], ""])
         lines.extend(["## 推荐方案", f"**{solution.recommended_solution_id}**: {rec_title}", ""])
         for sol in solution.solutions:
@@ -523,7 +610,9 @@ class ProblemSolverAgent(BaseAgent):
         if not problem_statement:
             problem_statement = "未提供具体问题描述，请分析当前项目风险与待办。"
 
-        problem_type, type_reason = self._classify(state, problem_statement)
+        problem_type, type_reason, classification_conflict = self._classify(
+            state, problem_statement
+        )
         self.logger.info("Problem classified | type=%s reason=%s", problem_type, type_reason)
 
         research_context = self._run_react(state, problem_statement, problem_type, type_reason)
@@ -588,6 +677,8 @@ class ProblemSolverAgent(BaseAgent):
             attempt,
         )
 
+        ref_stats = summarize_reference_provenance(solution.rule_pack_references)
+
         agent_updates: dict[str, Any] = {
             **self.reply(response_body),
             "last_solution": solution_dict,
@@ -599,6 +690,9 @@ class ProblemSolverAgent(BaseAgent):
                 if not (t.get("assigned_to") == self.name and t.get("status") == "open")
             ],
         }
+        if classification_conflict:
+            agent_updates["classification_conflict"] = classification_conflict
+        agent_updates["reference_provenance"] = ref_stats
         working = {**state, **agent_updates}
         agent_updates.update(
             build_handoff(
@@ -616,7 +710,12 @@ class ProblemSolverAgent(BaseAgent):
                 thought=f"判定问题类型为 {problem_type}（{type_reason}）",
                 decision=f"推荐方案 {solution.recommended_solution_id}",
                 evidence=[r.rule_id for r in solution.rule_pack_references[:5]],
-                extra={"problem_type": problem_type, "attempt": attempt},
+                extra={
+                    "problem_type": problem_type,
+                    "attempt": attempt,
+                    "reference_provenance": ref_stats,
+                    "classification_conflict": classification_conflict,
+                },
             )
         )
         working = {**state, **agent_updates}

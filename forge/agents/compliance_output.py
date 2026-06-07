@@ -19,6 +19,10 @@ class FailedCheckItem(BaseModel):
         default="medium",
         description="low | medium | high | critical — derived from status and module",
     )
+    suggestion: str = Field(
+        default="",
+        description="Actionable remediation tied to rule_id",
+    )
 
 
 class CheckItem(BaseModel):

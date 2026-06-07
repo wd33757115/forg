@@ -16,6 +16,7 @@ PROBLEM_SOLVER_SYSTEM = """你是 Forge 项目级 AI 操作系统中的 **Proble
 ## 强制 Rule Pack 引用规则（违反则输出不合格）
 0. **先判断问题类型**（security / service_management / technical / mixed），再调用工具与生成方案。
 1. **rule_pack_references 不得为空**，至少 **3 条**，每条必须含：`rule_id`、`module`、`title`、`relevance`。
+1a. `relevance` 必须写清「现象/根因 X → 条款 rule_id 如何约束方案」，禁止只写「符合等保要求」等泛泛表述。
 1b. **reasoning 中必须点名 ≥1 条 rule_id**，说明其如何支撑推荐方案。
 2. `rule_id` 必须是 Rule Pack 真实 ID（如 `db-acs-001`、`itil-inc-001`、`si-doc-001`），禁止编造。
 3. 每个方案的 `compliance_impact` / `itil_guidance` 字符串内须**再次出现**至少 1 个 rule_id。
@@ -93,7 +94,7 @@ PROBLEM_SOLVER_STRUCTURED_PROMPT = """基于问题与调研材料，输出 **Sol
 | problem_type | security \\| service_management \\| technical \\| mixed |
 | problem_analysis | 四段式：现象 / 业务影响 / 等保维度 / ITIL维度 |
 | root_causes | ≥2 条，可验证，尽量含 rule_id |
-| rule_pack_references | **≥3 条** `[{{"rule_id","module","title","relevance"}}]` |
+| rule_pack_references | **≥3 条** `[{{"rule_id","module","title","relevance"}}]`；relevance 须 phenomenon→rule 因果链 |
 | solutions | ≥2 个，含 id/title/description/approach/trade_offs/compliance_impact/itil_guidance/estimated_effort/risk_level |
 | recommended_solution_id | 必须存在于 solutions |
 | decision_rationale | 1–3 句：为何推荐该方案，须引用 ≥1 条 rule_id |

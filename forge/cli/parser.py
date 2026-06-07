@@ -101,7 +101,19 @@ def build_cli_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--project-id", default="cli-demo", help="项目 ID")
     parser.add_argument("--protection-level", default="3", choices=["1", "2", "3", "4", "5"])
-    parser.add_argument("-v", "--verbose", action="store_true", help="DEBUG 日志")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="DEBUG 日志 + Demo 展开完整追踪（pipeline / thinking / 统计）",
+    )
+    parser.add_argument(
+        "--export-trace",
+        nargs="?",
+        const="auto",
+        metavar="PATH",
+        help="导出 pipeline_trace 与 conversation_history 为 JSON（默认 reports/trace_<run_id>.json）",
+    )
     parser.add_argument("--show-docs", action="store_true", help="打印完整 Markdown 资料")
     parser.add_argument("--log-file", help="日志输出文件")
     parser.add_argument(

@@ -28,6 +28,7 @@ from forge.cli.runner import run_forge
 from forge.cli.scenarios import SCENARIO_QUESTIONS  # noqa: F401 — web backward compat
 from forge.config import get_settings
 from forge.utils.env import load_dotenv
+from forge.utils.trace_export import write_trace_export
 from forge.utils.llm import get_api_key
 from forge.utils.logger import get_logger, setup_logging
 from forge.utils.result_serializer import default_run_result_path, save_run_result
@@ -218,7 +219,19 @@ def main(argv: list[str] | None = None) -> int:
         display.print_errors(result)
         display.print_summary_footer(result, elapsed_ms=elapsed_ms)
     else:
-        display.print_demo_result(result, question=question, elapsed_ms=elapsed_ms)
+        display.print_demo_result(
+            result, question=question, elapsed_ms=elapsed_ms, verbose=args.verbose
+        )
+
+    if args.export_trace is not None:
+        run_id = result.get("run_id") or "unknown"
+        trace_path = (
+            f"reports/trace_{run_id}.json"
+            if args.export_trace == "auto"
+            else args.export_trace
+        )
+        written_trace = write_trace_export(result, trace_path, question=question)
+        display.info(f"追踪 JSON: {written_trace}")
 
     if args.report:
         report_path = (

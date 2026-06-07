@@ -6,6 +6,7 @@ from typing import Any
 
 from forge.cli.display import ForgeDisplay, _RICH
 from forge.cli.stats import compute_run_stats
+from forge.utils.decision_summary import build_decision_summary_bullets
 
 if _RICH:
     from rich import box
@@ -40,29 +41,47 @@ class ForgeDemoDisplay(ForgeDisplay):
         *,
         question: str = "",
         elapsed_ms: float | None = None,
+        verbose: bool = False,
     ) -> None:
-        """Primary post-run demo output (Rich when available)."""
+        """Primary post-run demo — 四步叙事 + 可选 verbose 详细追踪 (C1/C3)."""
         if not self.use_color or not self._console:
-            self._print_demo_plain(result, question=question, elapsed_ms=elapsed_ms)
+            self._print_demo_plain(
+                result, question=question, elapsed_ms=elapsed_ms, verbose=verbose
+            )
             return
 
         stats = compute_run_stats(result, elapsed_ms=elapsed_ms)
         self._console.print()
         self._print_pipeline_banner(result)
         if question:
-            self._console.print(Panel(question, title="① 用户问题", border_style="white", padding=(1, 2)))
-        self._print_agent_pipeline_table(result)
+            self._console.print(Panel(question, title="用户问题", border_style="white", padding=(1, 2)))
+        self._print_decision_summary_panel(result, stats)
+
+        self._console.print("[bold cyan]── ① 判型与调查（ProblemSolver）──[/]")
         self._print_solution_panel(result)
+        self._print_specialist_panels(result)
+
+        self._console.print("[bold cyan]── ② 方案与 Handoff ──[/]")
+        self._print_handoff_chain(result)
+
+        self._console.print("[bold cyan]── ③ 合规闭环（Compliance）──[/]")
         self._print_compliance_panel(result, stats)
-        if stats.get("compliance_retries", 0) > 0:
-            self._print_compliance_retry_timeline(result)
-        self._print_documents_panel(result)
-        self._print_pm_panel(result)
+        self._print_compliance_event_timeline(result, stats)
+
+        self._console.print("[bold cyan]── ④ 半自治收尾（置信度 → 审批 → 执行 → PM）──[/]")
         self._print_confidence_factors(result)
+        self._print_approval_panel(result, force_show=True)
         self._print_execution_panel(result)
         self._print_execution_results_panel(result)
-        self._print_approval_panel(result)
-        self._print_thinking_chain_rich(result)
+        self._print_pm_panel(result)
+        self._print_documents_panel(result)
+
+        if verbose:
+            self._console.print("[bold dim]── Verbose：完整追踪 ──[/]")
+            self._print_agent_pipeline_table(result)
+            self._print_thinking_chain_rich(result)
+            self._print_stats_panel(stats)
+
         self.print_errors(result)
         self._print_run_summary(stats, result)
         self._console.print()
@@ -124,6 +143,80 @@ class ForgeDemoDisplay(ForgeDisplay):
                 table.add_row(k, str(v))
         self._console.print(Panel(table, title="运行摘要", border_style="green"))
 
+    def _print_decision_summary_panel(
+        self, result: dict[str, Any], stats: dict[str, Any]
+    ) -> None:
+        bullets = build_decision_summary_bullets(result, stats=stats)
+        body = "\n".join(f"[bold]{i}.[/] {b}" for i, b in enumerate(bullets, 1))
+        self._console.print(
+            Panel(body, title="决策摘要（5 步）", border_style="bright_white", padding=(1, 2))
+        )
+
+    def _print_specialist_panels(self, result: dict[str, Any]) -> None:
+        sec = result.get("last_security_result") or {}
+        if sec.get("diagnosis") or sec.get("risk_level"):
+            text = (sec.get("diagnosis") or "")[:400]
+            risk = sec.get("risk_level", "—")
+            level = sec.get("protection_level", "—")
+            self._console.print(
+                Panel(
+                    f"[dim]等保 L{level} | 风险 {risk}[/]\n{text}",
+                    title="Security 专家补充",
+                    border_style="red",
+                )
+            )
+        ops = result.get("last_operations_result") or {}
+        if ops.get("situation_summary") or ops.get("practice_area"):
+            text = (ops.get("situation_summary") or "")[:400]
+            self._console.print(
+                Panel(
+                    f"[dim]实践域 {ops.get('practice_area', '—')}[/]\n{text}",
+                    title="Operations 专家补充",
+                    border_style="yellow",
+                )
+            )
+
+    def _print_compliance_event_timeline(
+        self, result: dict[str, Any], stats: dict[str, Any]
+    ) -> None:
+        """Compact compliance / retry / handoff timeline (always shown when events exist)."""
+        history = result.get("conversation_history") or []
+        events = [
+            h
+            for h in history
+            if h.get("event")
+            in (
+                "compliance_retry",
+                "compliance_check",
+                "solution_generated",
+                "handoff",
+            )
+        ]
+        if not events and not stats.get("compliance_retries"):
+            return
+        lines: list[str] = []
+        for entry in events[-8:]:
+            agent = entry.get("agent", "?")
+            event = entry.get("event", "?")
+            summary = entry.get("summary", "")[:70]
+            detail = entry.get("detail") or {}
+            extra = ""
+            if event == "compliance_check":
+                extra = (
+                    f" → {detail.get('compliance_status')} "
+                    f"(failed={detail.get('failed_items_count', '?')})"
+                )
+            elif event == "handoff":
+                hs = detail.get("handoff_summary") or {}
+                rids = ", ".join(hs.get("rule_ids") or [])[:50]
+                if rids:
+                    extra = f" | rules: {rids}"
+            lines.append(f"• [cyan]{agent}[/] [{event}] {summary}{extra}")
+        title = "合规时间线"
+        if stats.get("compliance_retries"):
+            title += f"（重试 {stats['compliance_retries']} 次）"
+        self._console.print(Panel("\n".join(lines) or "[dim]无事件[/]", title=title, border_style="yellow"))
+
     def _print_pipeline_banner(self, result: dict[str, Any]) -> None:
         plan = result.get("workflow_plan") or {}
         stages = plan.get("stages") or [
@@ -147,7 +240,7 @@ class ForgeDemoDisplay(ForgeDisplay):
     def _print_solution_panel(self, result: dict[str, Any]) -> None:
         solution = result.get("last_solution") or {}
         if not solution:
-            self._console.print(Panel("[dim]无方案输出[/]", title="② ProblemSolver 方案", border_style="blue"))
+            self._console.print(Panel("[dim]无方案输出[/]", title="ProblemSolver 方案", border_style="blue"))
             return
 
         ptype = solution.get("problem_type", result.get("problem_type", "—"))
@@ -181,7 +274,7 @@ class ForgeDemoDisplay(ForgeDisplay):
         if solution.get("confidence") is not None:
             body.add_row("方案置信度", f"{float(solution['confidence']):.0%}")
 
-        self._console.print(Panel(body, title="② ProblemSolver 方案", border_style="blue"))
+        self._console.print(Panel(body, title="ProblemSolver 方案", border_style="blue"))
 
     def _print_compliance_panel(self, result: dict[str, Any], stats: dict[str, Any]) -> None:
         compliance = result.get("last_compliance_result") or {}
@@ -225,10 +318,16 @@ class ForgeDemoDisplay(ForgeDisplay):
         failed = compliance.get("failed_items") or []
         if failed:
             fail_lines = "\n".join(
-                f"• [{f.get('status')}] `{f.get('rule_id', '—')}` {f.get('title', '')[:50]}"
+                f"• [{f.get('status')}] `{f.get('rule_id', '—')}` "
+                f"[{f.get('severity', '—')}] {f.get('title', '')[:40]}"
                 for f in failed[:6]
             )
             content.add_row(Panel(fail_lines, title=f"失败项 ({mode})", border_style="red"))
+        elif matched := compliance.get("matched_rules"):
+            preview = ", ".join(f"`{r}`" for r in matched[:8])
+            content.add_row(
+                Panel(preview, title="通过规则 (matched_rules)", border_style="green")
+            )
 
         suggestions = compliance.get("suggestions") or []
         if suggestions:
@@ -243,7 +342,7 @@ class ForgeDemoDisplay(ForgeDisplay):
             )
             content.add_row(Panel(expl_lines, title="规则追溯", border_style="dim"))
 
-        self._console.print(Panel(content, title="③ Compliance 合规检查", border_style="magenta"))
+        self._console.print(Panel(content, title="Compliance 检查详情", border_style="magenta"))
 
     def _print_compliance_retry_timeline(self, result: dict[str, Any]) -> None:
         history = result.get("conversation_history") or []
@@ -295,7 +394,7 @@ class ForgeDemoDisplay(ForgeDisplay):
         if not docs:
             skipped = (result.get("final_output") or {}).get("document_generation", "skipped")
             self._console.print(
-                Panel(f"[dim]资料生成: {skipped}[/]", title="④ Document 资料", border_style="dim")
+                Panel(f"[dim]资料生成: {skipped}[/]", title="Document 资料", border_style="dim")
             )
             return
 
@@ -306,7 +405,7 @@ class ForgeDemoDisplay(ForgeDisplay):
         for i, doc in enumerate(docs, 1):
             table.add_row(str(i), doc.get("doc_type", ""), doc.get("title", ""))
         self._console.print(
-            Panel(table, title=f"④ Document 资料（{len(docs)} 份）", border_style="green")
+            Panel(table, title=f"Document 资料（{len(docs)} 份）", border_style="green")
         )
 
     def _print_confidence_factors(self, result: dict[str, Any]) -> None:
@@ -350,7 +449,7 @@ class ForgeDemoDisplay(ForgeDisplay):
                 t.get("task_type", ""),
                 t.get("title", ""),
             )
-        self._console.print(Panel(table, title="⑥ 执行任务", border_style="bright_green"))
+        self._console.print(Panel(table, title="执行任务", border_style="bright_green"))
 
     def _print_execution_results_panel(self, result: dict[str, Any]) -> None:
         results = result.get("execution_results") or []
@@ -364,11 +463,13 @@ class ForgeDemoDisplay(ForgeDisplay):
         )
         self._console.print(Panel(lines, title="执行结果（模拟）", border_style="green"))
 
-    def _print_approval_panel(self, result: dict[str, Any]) -> None:
+    def _print_approval_panel(self, result: dict[str, Any], *, force_show: bool = False) -> None:
         pending = result.get("pending_approvals") or []
         status = result.get("approval_status", "—")
         requests = result.get("approval_requests") or []
-        if not pending and not requests:
+        if not force_show and not pending and not requests:
+            return
+        if force_show and status in ("—", "", None) and not pending and not requests:
             return
         if not self._console or not self.use_color:
             return
@@ -380,7 +481,7 @@ class ForgeDemoDisplay(ForgeDisplay):
         else:
             last = requests[-1] if requests else {}
             body += f"最近: {last.get('status', '—')} ({last.get('resolved_by', '')})"
-        self._console.print(Panel(body.strip(), title="审批流程", border_style="yellow"))
+        self._console.print(Panel(body.strip(), title="审批门控", border_style="yellow"))
 
     def _print_pm_panel(self, result: dict[str, Any]) -> None:
         pm = result.get("last_pm_advice") or {}
@@ -393,7 +494,7 @@ class ForgeDemoDisplay(ForgeDisplay):
             body += "\n\n[bold]行动项[/]\n" + "\n".join(
                 f"• [{a.get('priority', 'P2')}] {a.get('title', '')}" for a in actions[:5]
             )
-        self._console.print(Panel(body, title="⑤ PM 顾问建议", border_style="bright_blue"))
+        self._console.print(Panel(body, title="PM 顾问建议", border_style="bright_blue"))
 
     def _print_thinking_chain_rich(self, result: dict[str, Any]) -> None:
         thinking = [h for h in (result.get("conversation_history") or []) if h.get("event") == "thinking"]
@@ -449,12 +550,17 @@ class ForgeDemoDisplay(ForgeDisplay):
         *,
         question: str,
         elapsed_ms: float | None,
+        verbose: bool = False,
     ) -> None:
         """Fallback when Rich is unavailable."""
         from forge.cli.result_print import print_result
 
-        print_result(result, question=question)
-        self.print_thinking_chain(result.get("conversation_history") or [])
-        self.print_agent_contributions(result)
         stats = compute_run_stats(result, elapsed_ms=elapsed_ms)
+        print("\n=== 决策摘要 ===")
+        for i, b in enumerate(build_decision_summary_bullets(result, stats=stats), 1):
+            print(f"{i}. {b}")
+        print_result(result, question=question)
+        if verbose:
+            self.print_thinking_chain(result.get("conversation_history") or [])
+            self.print_agent_contributions(result)
         print(f"\n--- 统计: 耗时={stats.get('elapsed_s')}s | 重试={stats.get('compliance_retries')} ---")

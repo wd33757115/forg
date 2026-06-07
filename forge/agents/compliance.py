@@ -19,6 +19,7 @@ from forge.prompts.loader import load_prompts
 from forge.utils.compliance_explain import (
     build_check_explanations,
     enrich_compliance_output,
+    resolve_compliance_status_from_output,
 )
 
 _cp = load_prompts("compliance")
@@ -207,9 +208,21 @@ class ComplianceAgent(BaseAgent):
                 lines.append(f"  {icon} rule_id={rid} | {item.title}: {item.detail}")
             lines.append("")
 
+        if output.failed_items:
+            lines.extend(["## 合规失败项 (failed_items)", ""])
+            for f in output.failed_items[:10]:
+                lines.append(
+                    f"  ✗ `{f.rule_id}` [{f.severity}] {f.title}: {f.description[:80]}"
+                )
+                if f.suggestion:
+                    lines.append(f"    → {f.suggestion[:120]}")
+            lines.append("")
+
         if output.missing_items:
             lines.extend(["## 缺失项", *[f"- {m}" for m in output.missing_items], ""])
-        if output.recommendations:
+        if output.suggestions:
+            lines.extend(["## 整改建议 (suggestions)", *[f"- {s}" for s in output.suggestions], ""])
+        elif output.recommendations:
             lines.extend(["## 整改建议", *[f"- {r}" for r in output.recommendations], ""])
         lines.extend(["## 下一步行动", output.next_action, ""])
         lines.extend(["## 结构化输出 (JSON)", f"```json\n{output.to_display_json()}\n```"])
@@ -255,12 +268,17 @@ class ComplianceAgent(BaseAgent):
             for i in all_items
             if i.get("status") == "fail" and "dengbao" in i.get("category", "")
         )
-        _, _, compliance_status = finalize_compliance_status(
+        heuristic_status = finalize_compliance_status(
             fail_total=fail_total,
             warn_total=warn_total,
             critical_fails=critical_fails,
             check_mode=check_mode,
+        )[2]
+        compliance_status = resolve_compliance_status_from_output(
+            output, check_mode=check_mode
         )
+        if check_mode == "strict" and output.failed_items:
+            compliance_status = "non_compliant"
         rule_mapped = sum(
             1 for i in all_items if i.get("rule_id") or i.get("check_id")
         )
@@ -272,7 +290,9 @@ class ComplianceAgent(BaseAgent):
             "compliance_status": compliance_status,
             "check_mode": check_mode,
             "base_compliance_status": base_status,
+            "heuristic_compliance_status": heuristic_status,
             "evidence_coverage": round(evidence_coverage, 3),
+            "failed_items_count": len(output.failed_items),
         }
         structured["check_explanations"] = build_check_explanations(structured)
         return record, structured
@@ -367,10 +387,15 @@ class ComplianceAgent(BaseAgent):
 
         status_label = structured.get("compliance_status", "unknown")
         if in_closed_loop:
+            failed_preview = ", ".join(
+                f"`{f.rule_id}`({f.severity})" for f in (output.failed_items or [])[:4]
+            )
             body = (
-                f"**方案合规检查**: {status_label}\n"
+                f"**方案合规检查**: {status_label} | 模式: {structured.get('check_mode', 'advisory')}\n"
                 f"- 风险等级: {output.risk_level}\n"
-                f"- 缺口数: {len(output.missing_items)}\n"
+                f"- failed_items: {len(output.failed_items)}"
+                + (f" — {failed_preview}" if failed_preview else "")
+                + f"\n- 缺口数: {len(output.missing_items)}\n"
                 f"- 下一步: {output.next_action}"
             )
         else:
@@ -400,6 +425,8 @@ class ComplianceAgent(BaseAgent):
             "compliance_status": status_label,
             "risk_level": output.risk_level,
             "missing_count": len(output.missing_items),
+            "failed_items_count": len(output.failed_items),
+            "failed_rule_ids": [f.rule_id for f in output.failed_items[:8]],
             "explanation_count": len(structured.get("check_explanations") or []),
         }
         if handoff.get("recommended_solution_id"):

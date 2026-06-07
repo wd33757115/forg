@@ -53,7 +53,9 @@ def test_generate_run_report_sections():
     assert "登录401" in md
     assert "pipeline_trace" in md
     assert "合规重试" in md
+    assert "## 决策摘要" in md
     assert "关键决策" in md
+    assert "## 附录：完整追踪" in md
     assert "决策依据" in md
     assert "合规检查追溯" in md
     assert "input_summary" not in md  # rendered in table, not raw key

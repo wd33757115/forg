@@ -12,11 +12,13 @@ Forge 支持三种合规检查严格度，通过 CLI `--check-mode` 或 `Project
 
 以下数据来自 `tests/test_stage1_compliance_modes.py` 同款种子状态（`stage1-cmp`，含基础 WBS/文档证据）：
 
-| check_mode | 典型 `overall_status` | `len(failed_items)` 趋势 | 说明 |
-|------------|----------------------|--------------------------|------|
-| **strict** | 更易 `non_compliant` / `partial` | **最多** | partial 可升级为 non_compliant；置信度合规因子 ×0.9 |
-| **advisory** | 常 `compliant` 或 `partial` | 中等 | Demo 默认；partial 仍可继续生成资料 |
-| **lenient** | 更易 `compliant` | **最少** | 边界检查更宽松，探索性分析用 |
+| check_mode | `failed_items` 纳入规则 | `compliance_status` | 说明 |
+|------------|-------------------------|---------------------|------|
+| **strict** | `fail` + `warning` 全部纳入 | 有 failed_items → **non_compliant** | 正式验收 / 审计 |
+| **advisory** | 仅 `fail`（warning 仅在追溯中） | 低/中 severity → **partial**；高/关键 → non_compliant | Demo 默认 |
+| **lenient** | 仅 `fail` 且 severity **high/critical** | 无阻断项 → compliant；否则 partial | 探索性分析 |
+
+生成对比报告：`python scripts/compliance_mode_diff.py` → `reports/compliance_mode_diff.md`
 
 **断言（自动化）**：`len(strict.failed_items) >= len(lenient.failed_items)`（见 `test_strict_has_more_failed_items_than_lenient`）。
 

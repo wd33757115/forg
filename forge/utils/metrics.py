@@ -47,3 +47,14 @@ def solution_reference_coverage(results: list[dict | None]) -> float:
         return 0.0
     hits = sum(1 for s in results if solution_has_rule_references(s))
     return hits / len(results)
+
+
+def solution_high_relevance_rate(solution: dict | None, *, threshold: float = 0.7) -> float:
+    """Fraction of refs with relevance_score >= threshold (A1 acceptance)."""
+    if not solution:
+        return 0.0
+    refs = solution.get("rule_pack_references") or []
+    if not refs:
+        return 0.0
+    high = sum(1 for r in refs if float(r.get("relevance_score") or 0) >= threshold)
+    return high / len(refs)
