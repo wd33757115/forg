@@ -1,0 +1,10 @@
+.venv
+.git
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+.forge_state
+.env
+reports/*.md
+!reports/demo-*-sample.md

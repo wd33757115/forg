@@ -172,6 +172,7 @@ class ProjectState(TypedDict):
     risk_level: str | None
     # v1.1 execution & approval
     execution_tasks: list[dict[str, Any]]
+    execution_results: list[dict[str, Any]]
     approval_requests: list[dict[str, Any]]
     pending_approvals: list[dict[str, Any]]
     approval_status: str | None
@@ -228,6 +229,7 @@ def create_initial_state(
         last_confidence_result=None,
         risk_level=None,
         execution_tasks=[],
+        execution_results=[],
         approval_requests=[],
         pending_approvals=[],
         approval_status=None,

@@ -70,7 +70,13 @@ class ProblemSolverAgent(BaseAgent):
         fallback = run_tool_research(
             state, problem_statement, problem_type=problem_type
         )
-        prior = search_knowledge(state, tags=[problem_type], limit=3)
+        keywords = [w for w in problem_statement.replace("，", " ").split() if len(w) >= 2][:6]
+        prior = search_knowledge(
+            state,
+            tags=[problem_type],
+            keywords=keywords or None,
+            limit=3,
+        )
         prior_cases = format_knowledge_context(prior)
         task = PROBLEM_SOLVER_REACT_TASK.format(
             problem_statement=problem_statement,

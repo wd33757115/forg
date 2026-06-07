@@ -110,11 +110,27 @@ copy .env.example .env
 ```bash
 make setup
 make test
+make test-integration   # 全闭环 + v1.1 集成测试
 make demo-security
 make demo-itil
 make demo-mixed
-make test-llm   # 需配置 API Key；验证引用率 ≥70%
+make report             # 生成 reports/latest-security.md
+make test-llm           # 需配置 API Key；验证引用率 ≥70%
 ```
+
+## Docker（可选）
+
+```bash
+cp .env.example .env   # 配置 API Key
+docker compose up --build
+# → http://127.0.0.1:8000/
+```
+
+## 开发路线图
+
+五阶段详细计划与完成状态见 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) §22。  
+新增 Agent 接入见 [`docs/AGENT_CHECKLIST.md`](docs/AGENT_CHECKLIST.md)。  
+合规模式说明见 [`docs/COMPLIANCE_CHECK_MODE.md`](docs/COMPLIANCE_CHECK_MODE.md)。
 
 CI 默认跑离线测试（`-m "not llm"`）；LLM 验收可在 GitHub Actions 手动触发 `workflow_dispatch` 并配置 `DEEPSEEK_API_KEY`。
 

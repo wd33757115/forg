@@ -36,6 +36,7 @@ def append_knowledge(
         "category": category,
         "content": summary,
         "source": agent,
+        "source_agent": agent,
         "tags": tags or [],
         "type": entry_type,
         "related_rules": related_rules or [],

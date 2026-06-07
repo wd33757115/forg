@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from forge.core.execution.models import ExecutionTask
 from forge.core.state import ProjectState
 
 
@@ -27,47 +28,45 @@ def generate_execution_tasks(state: ProjectState) -> list[dict[str, Any]]:
 
     for i, item in enumerate((compliance.get("missing_items") or [])[:5]):
         tasks.append(
-            {
-                "id": f"exec-{run_id}-rem-{i}",
-                "task_type": "remediation",
-                "title": f"整改: {str(item)[:80]}",
-                "description": str(item),
-                "status": "draft",
-                "priority": "P1" if compliance.get("risk_level") in ("high", "critical") else "P2",
-                "source": "compliance",
-                "related_rules": _rules_from_solution(solution),
-                "created_at": _utc_now(),
-            }
+            ExecutionTask(
+                id=f"exec-{run_id}-rem-{i}",
+                task_type="remediation",
+                title=f"整改: {str(item)[:80]}",
+                description=str(item),
+                status="draft",
+                priority="P1" if compliance.get("risk_level") in ("high", "critical") else "P2",
+                source="compliance",
+                related_rules=_rules_from_solution(solution),
+                created_at=_utc_now(),
+            ).to_state_dict()
         )
 
     for i, action in enumerate((pm.get("action_items") or [])[:5]):
         tasks.append(
-            {
-                "id": f"exec-{run_id}-pm-{i}",
-                "task_type": "project_action",
-                "title": action.get("title", "PM 行动项"),
-                "description": action.get("description", action.get("title", "")),
-                "status": "draft",
-                "priority": action.get("priority", "P2"),
-                "source": "pm_advisor",
-                "related_rules": [],
-                "created_at": _utc_now(),
-            }
+            ExecutionTask(
+                id=f"exec-{run_id}-pm-{i}",
+                task_type="project_action",
+                title=action.get("title", "PM 行动项"),
+                description=action.get("description", action.get("title", "")),
+                status="draft",
+                priority=action.get("priority", "P2"),
+                source="pm_advisor",
+                created_at=_utc_now(),
+            ).to_state_dict()
         )
 
     if not tasks and solution.get("recommended_solution_id"):
         tasks.append(
-            {
-                "id": f"exec-{run_id}-sol-0",
-                "task_type": "implementation_wbs",
-                "title": f"实施方案: {solution.get('recommended_solution_id')}",
-                "description": (solution.get("problem_analysis") or "")[:500],
-                "status": "draft",
-                "priority": "P2",
-                "source": "problem_solver",
-                "related_rules": _rules_from_solution(solution),
-                "created_at": _utc_now(),
-            }
+            ExecutionTask(
+                id=f"exec-{run_id}-sol-0",
+                task_type="implementation_wbs",
+                title=f"实施方案: {solution.get('recommended_solution_id')}",
+                description=(solution.get("problem_analysis") or "")[:500],
+                status="draft",
+                source="problem_solver",
+                related_rules=_rules_from_solution(solution),
+                created_at=_utc_now(),
+            ).to_state_dict()
         )
 
     return tasks

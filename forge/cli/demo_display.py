@@ -60,6 +60,7 @@ class ForgeDemoDisplay(ForgeDisplay):
         self._print_pm_panel(result)
         self._print_confidence_factors(result)
         self._print_execution_panel(result)
+        self._print_execution_results_panel(result)
         self._print_approval_panel(result)
         self._print_thinking_chain_rich(result)
         self.print_errors(result)
@@ -311,6 +312,18 @@ class ForgeDemoDisplay(ForgeDisplay):
                 t.get("title", ""),
             )
         self._console.print(Panel(table, title="⑥ 执行任务", border_style="bright_green"))
+
+    def _print_execution_results_panel(self, result: dict[str, Any]) -> None:
+        results = result.get("execution_results") or []
+        if not results:
+            return
+        if not self._console or not self.use_color:
+            return
+        lines = "\n".join(
+            f"• [{r.get('status')}] {r.get('task_id')}: {r.get('summary', '')[:60]}"
+            for r in results[:6]
+        )
+        self._console.print(Panel(lines, title="执行结果（模拟）", border_style="green"))
 
     def _print_approval_panel(self, result: dict[str, Any]) -> None:
         pending = result.get("pending_approvals") or []

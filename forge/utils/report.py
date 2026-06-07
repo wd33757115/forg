@@ -128,6 +128,20 @@ def generate_run_report(
             ]
         )
 
+    tasks = state.get("execution_tasks") or []
+    if tasks:
+        lines.extend(["## 执行任务", f"共 {len(tasks)} 项:", ""])
+        for t in tasks[:8]:
+            lines.append(f"- [{t.get('status')}] {t.get('title', '')}")
+        lines.append("")
+
+    exec_results = state.get("execution_results") or []
+    if exec_results:
+        lines.extend(["## 执行结果（模拟）", ""])
+        for r in exec_results[:8]:
+            lines.append(f"- [{r.get('status')}] {r.get('task_id')}: {r.get('summary', '')}")
+        lines.append("")
+
     lines.extend(["## 流水线追踪 (pipeline_trace)", ""])
     if trace:
         lines.append("| Agent | 状态 | 耗时 | 输入摘要 | 输出摘要 |")

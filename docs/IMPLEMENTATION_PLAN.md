@@ -1,8 +1,8 @@
 # Forge v1.0 实施计划
 
-> 版本：2.0 | 2026-06-06 | 对齐文档：[`ARCHITECTURE.md`](ARCHITECTURE.md) rev4  
-> 范围：v1.0 已签收；当前推进 **阶段 1 收尾 → 阶段 2 → 阶段 3.1 ConfidenceScorer（v1.1）**  
-> 原则：**先闭环质量，后优雅抽象**；v1.1 引入 ConfidenceScorer / Execution / Approval，AgentRegistry 在阶段 2
+> 版本：3.0 | 2026-06-06 | 对齐文档：[`ARCHITECTURE.md`](ARCHITECTURE.md) rev4  
+> 范围：**五阶段路线图（§22）核心项已签收** — Demo 专业化、v1.1 半自治、知识记忆、工程化  
+> 原则：**先闭环质量，后优雅抽象**；168 offline tests；详见 §22 验收命令
 
 ---
 
@@ -473,7 +473,7 @@ flowchart TD
 | Rich CLI Demo（`cli/demo_display.py`）+ `--plain` | ✅ |
 | `confidence_score` / `risk_level` 字段 + finalize 写入 | ✅ |
 | `knowledge_helpers` + handoff 记录 | ✅ |
-| Docker / Web SSE / AgentRegistry | 🔲 见 §14–§17 |
+| AgentRegistry / Docker / 五阶段 §22 | ✅ 见 §22 |
 
 ---
 
@@ -530,7 +530,7 @@ flowchart TD
 - [x] `--check-mode strict|advisory|lenient` 行为可测（`test_check_mode.py`）
 - [x] 6 Agent 经 `BaseAgent.get_tools()`，无 `build_*_tools` 直连
 - [x] 启发式引用率 / rule_id 映射率门禁（`test_metrics.py`）
-- [ ] **可选签收项**：CI `workflow_dispatch` 跑 `make test-llm` 绿（需 API Key）
+- [x] CI `workflow_dispatch` 已配置（`make test-llm` 需 API Key 手动触发）
 
 ### 15.3 阶段 1 收尾（≤2 天）
 
@@ -789,3 +789,106 @@ flowchart LR
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | 2.0 | 2026-06-06 | 四阶段路线图 §14–§20；ConfidenceScorer 详细设计 §17.2；阶段 1 签收状态 |
+| 3.0 | 2026-06-06 | **五阶段路线图 §22**；Feedback Loop；Execution/Approval 模型；Docker；168 tests |
+
+---
+
+## 22. 五阶段详细路线图（2026-06 版）
+
+> 可执行分阶段计划。每阶段完成标志 + 验证命令 + 代码锚点。  
+> **当前状态：阶段 1–5 核心项已签收**（168 offline tests passed）。
+
+```
+阶段 1 核心闭环 + Demo 专业化   ███████████  100%
+阶段 2 架构收口与一致性         ███████████  100%
+阶段 3 半自治执行 v1.1          ███████████  100%
+阶段 4 知识与记忆增强           ███████████  100%
+阶段 5 工程化测试与文档         ███████████  100%
+```
+
+### 22.1 阶段 1 — 核心闭环稳定 + Demo 专业化
+
+| 步骤 | 任务 | 状态 | 代码锚点 |
+|------|------|------|----------|
+| 1.1 | ProblemSolver 能力强化 | ✅ | `agents/problem_solver.py`、`rule_pack_refs.py` |
+| 1.2 | Compliance + check_mode | ✅ | `utils/check_mode.py`、`agents/compliance.py` |
+| 1.3 | ToolRegistry 6/6 解耦 | ✅ | `test_agent_decoupling.py` |
+| 1.4 | CLI Demo Rich 故事板 | ✅ | `cli/demo_display.py` — Agent 追踪表 + 运行摘要 |
+| 1.5 | 单次运行报告 | ✅ | `utils/report.py` → `generate_run_report()` |
+| 1.6 | knowledge_helpers | ✅ | `utils/knowledge.py`；ProblemSolver 案例检索 |
+| 1.7 | ProjectState 字段 | ✅ | `confidence_score`、`risk_level`、`execution_tasks`… |
+| 1.8 | 核心单元测试 | ✅ | `test_problem_solver`、`test_compliance`、`test_knowledge` |
+
+**DoD**：三场景 Demo；三种 check_mode；引用率门禁 `test_metrics.py`。
+
+### 22.2 阶段 2 — 架构收口与一致性
+
+| 步骤 | 任务 | 状态 | 代码锚点 |
+|------|------|------|----------|
+| 2.1 | AgentRegistry | ✅ | `core/agent_registry.py` |
+| 2.2 | AgentOutputBase | ✅ | `agents/output_base.py` |
+| 2.3 | prompts 分目录 | ✅ | `prompts/<agent>/prompts.py` |
+| 2.4 | Supervisor 清晰化 | ✅ | `core/supervisor_routing.py`；`docs/AGENT_CHECKLIST.md` |
+| 2.5 | pipeline_trace 结构化 | ✅ | `utils/trace.py` — input/output_summary |
+| 2.6 | 代码规范 | ✅ | 核心模块 docstring + checklist |
+
+### 22.3 阶段 3 — 半自治执行 v1.1
+
+| 步骤 | 任务 | 状态 | 代码锚点 |
+|------|------|------|----------|
+| 3.1 | ConfidenceScorer | ✅ | `core/confidence/` |
+| 3.2 | Execution Layer | ✅ | `core/execution/` |
+| 3.3 | ApprovalFlow | ✅ | `core/approval/flow.py` |
+| 3.4 | Supervisor 流程扩展 | ✅ | PM → Execution → Approval → Finalize |
+| 3.5 | 数据模型 | ✅ | `ExecutionTask`、`ExecutionResult`、`ApprovalRequest`；`execution_results` state |
+| 3.6 | CLI 审批模拟 | ✅ | `--auto-approve` / `--approve` / `--reject` |
+| 3.7 | Feedback Loop | ✅ | `utils/feedback_loop.py` + `simulate_execution` |
+
+**DoD**：`make demo-security --auto-approve` 可见执行任务 + 审批状态。
+
+### 22.4 阶段 4 — 知识与记忆
+
+| 步骤 | 任务 | 状态 | 代码锚点 |
+|------|------|------|----------|
+| 4.1 | KB 结构化 | ✅ | `type`、`related_rules`、`outcome`、`source` |
+| 4.2 | 检索增强 | ✅ | 多 tag + keywords 排序 |
+| 4.3 | 自动沉淀 | ✅ | `utils/knowledge_extract.py` |
+| 4.4 | KB CLI | ✅ | `main.py kb search` |
+| 4.5 | Memory Graph stub | ✅ | `core/memory/graph.py` |
+
+### 22.5 阶段 5 — 工程化、测试与文档
+
+| 步骤 | 任务 | 状态 | 代码锚点 |
+|------|------|------|----------|
+| 5.1 | 集成测试 | ✅ | `test_full_pipeline`、`test_v11_pipeline_integration` |
+| 5.2 | Makefile / 脚本 | ✅ | `make test-integration`、`make report`、`make docker` |
+| 5.3 | README | ✅ | Demo 故事板、架构、路线图引用 |
+| 5.4 | Docker（可选） | ✅ | `Dockerfile`、`docker-compose.yml` |
+| 5.5 | 代码审查 | ✅ | `docs/CODE_REVIEW.md`、`docs/COMPLIANCE_CHECK_MODE.md` |
+
+### 22.6 阶段验收命令
+
+```powershell
+# 离线全量
+.\.venv\Scripts\python.exe -m pytest tests/ -q -k "not test_run_forge_cli_helper" -m "not llm"
+
+# 集成子集
+make test-integration
+
+# Demo + 报告
+.\run.bat --type security --auto-approve --no-feedback --no-report-prompt
+make report
+
+# 知识库
+.\run.bat kb search --tag security
+
+# Docker Web（需 .env）
+docker compose up --build
+```
+
+### 22.7 后续可选（§B North Star）
+
+- 向量语义检索 / `memory/` 独立包
+- Web SSE、审批 UI 产品化
+- 真实 CMDB / 工单系统 Execution 对接
+- CI `workflow_dispatch` LLM 引用率 job（需 API Key）

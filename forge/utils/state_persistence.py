@@ -34,6 +34,7 @@ _RUN_RESET_FIELDS: dict[str, Any] = {
     "pipeline_trace": [],
     "agent_errors": [],
     "execution_tasks": [],
+    "execution_results": [],
     "approval_requests": [],
     "pending_approvals": [],
     "approval_status": None,

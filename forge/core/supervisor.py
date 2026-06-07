@@ -601,88 +601,32 @@ class Supervisor:
         return updates
 
 
-# ---------------------------------------------------------------------------
-# LangGraph conditional edge routers (imported by workflow.py)
-# ---------------------------------------------------------------------------
+# LangGraph routers live in supervisor_routing.py (phase 2.4)
+from forge.core.supervisor_routing import (  # noqa: E402
+    route_after_compliance,
+    route_after_operations,
+    route_after_problem_solver,
+    route_after_security,
+    route_after_supervisor,
+)
 
-
-def _pending_specialist(state: ProjectState) -> str | None:
-    """Return the next specialist in queue not yet completed."""
-    queue = state.get("specialist_queue", [])
-    done = set(state.get("specialists_completed", []))
-    for specialist in queue:
-        if specialist not in done:
-            return specialist
-    return None
-
-
-def route_after_supervisor(state: ProjectState) -> str:
-    """Map supervisor next_agent to graph node."""
-    next_agent = state.get("next_agent")
-    if next_agent == AgentName.PROBLEM_SOLVER:
-        return AgentName.PROBLEM_SOLVER
-    if next_agent == AgentName.COMPLIANCE:
-        return AgentName.COMPLIANCE
-    if next_agent == AgentName.SECURITY:
-        return AgentName.SECURITY
-    if next_agent == AgentName.OPERATIONS:
-        return AgentName.OPERATIONS
-    if next_agent == AgentName.DOCUMENT:
-        return AgentName.DOCUMENT
-    if next_agent == AgentName.PM_ADVISOR:
-        return AgentName.PM_ADVISOR
-    if next_agent == AgentName.FINALIZE:
-        return AgentName.FINALIZE
-    return AgentName.END
-
-
-def route_after_problem_solver(state: ProjectState) -> str:
-    """After ProblemSolver: run queued specialists, then Compliance."""
-    if state.get("active_workflow") != WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
-        return AgentName.END
-    pending = _pending_specialist(state)
-    if pending == AgentName.SECURITY:
-        return AgentName.SECURITY
-    if pending == AgentName.OPERATIONS:
-        return AgentName.OPERATIONS
-    return AgentName.COMPLIANCE
-
-
-def route_after_specialist_chain(state: ProjectState) -> str:
-    """Continue specialist queue or proceed to Compliance in closed loop."""
-    if state.get("active_workflow") != WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
-        return AgentName.PM_ADVISOR
-    pending = _pending_specialist(state)
-    if pending == AgentName.SECURITY:
-        return AgentName.SECURITY
-    if pending == AgentName.OPERATIONS:
-        return AgentName.OPERATIONS
-    return AgentName.COMPLIANCE
-
-
-def route_after_security(state: ProjectState) -> str:
-    """Standalone security → Compliance; closed loop → next specialist or Compliance."""
-    if state.get("active_workflow") == WORKFLOW_SECURITY_STANDALONE:
-        return AgentName.COMPLIANCE
-    return route_after_specialist_chain(state)
-
-
-def route_after_operations(state: ProjectState) -> str:
-    """Standalone operations → PMAdvisor; closed loop → next specialist or Compliance."""
-    if state.get("active_workflow") == WORKFLOW_OPERATIONS_STANDALONE:
-        return AgentName.PM_ADVISOR
-    return route_after_specialist_chain(state)
-
-
-def route_after_compliance(state: ProjectState) -> str:
-    """
-    After Compliance in closed loop → supervisor post-compliance routing.
-    Standalone compliance audit → finalize directly.
-    """
-    if state.get("active_workflow") == WORKFLOW_PROBLEM_COMPLIANCE_LOOP:
-        return AgentName.SUPERVISOR
-
-    return AgentName.PM_ADVISOR
+__all__ = [
+    "AgentName",
+    "Supervisor",
+    "SupervisorDecision",
+    "WorkflowStep",
+    "finalize_node",
+    "is_compliant",
+    "is_non_compliant",
+    "is_partial_compliant",
+    "route_after_compliance",
+    "route_after_operations",
+    "route_after_problem_solver",
+    "route_after_security",
+    "route_after_supervisor",
+    "should_generate_documents",
+    "supervisor_post_compliance_node",
+]
 
 
 def supervisor_post_compliance_node(state: ProjectState) -> dict[str, Any]:

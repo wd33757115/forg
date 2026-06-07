@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from forge.core.approval.models import ApprovalRequest
 from forge.core.execution.generator import apply_execution_status
 from forge.core.state import ProjectState
 
@@ -22,16 +23,17 @@ def create_approval_request(
     confidence_score: float,
 ) -> dict[str, Any]:
     run_id = state.get("run_id", "run")
-    return {
-        "id": f"apr-{run_id}-{uuid4().hex[:6]}",
-        "status": "pending",
-        "recommendation": recommendation,
-        "confidence_score": confidence_score,
-        "reason": reason,
-        "created_at": _utc_now(),
-        "resolved_at": None,
-        "resolved_by": None,
-    }
+    compliance = state.get("last_compliance_result") or {}
+    req = ApprovalRequest(
+        id=f"apr-{run_id}-{uuid4().hex[:6]}",
+        status="pending",
+        recommendation=recommendation,
+        confidence_score=confidence_score,
+        risk_level=compliance.get("risk_level"),
+        reason=reason,
+        created_at=_utc_now(),
+    )
+    return req.to_state_dict()
 
 
 def resolve_approval_request(

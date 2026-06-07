@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from forge.core.approval.flow import run_approval_gate
+from forge.core.execution.simulate import simulate_execution
 from forge.core.state import ProjectState
 from forge.utils.conversation import record_conversation
+from forge.utils.feedback_loop import apply_feedback_loop
 from forge.utils.trace import append_pipeline_trace, summarize_agent_input, summarize_agent_output
 
 
@@ -46,4 +48,11 @@ def approval_gate_node(state: ProjectState) -> dict[str, Any]:
             "detail": output_summary,
         },
     )
+    if status in ("approved", "auto_approved"):
+        tasks, exec_results = simulate_execution(updates.get("execution_tasks") or [])
+        if exec_results:
+            updates["execution_tasks"] = tasks
+            updates["execution_results"] = list(state.get("execution_results") or []) + exec_results
+
+    updates.update(apply_feedback_loop({**state, **updates}, approval_status=status))
     return updates

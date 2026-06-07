@@ -6,15 +6,13 @@ from langgraph.graph import END, StateGraph
 
 from forge.core.agent_registry import get_agent_registry
 from forge.core.state import ProjectState
-from forge.core.supervisor import (
-    AgentName,
-    Supervisor,
+from forge.core.supervisor import AgentName, Supervisor, supervisor_post_compliance_node
+from forge.core.supervisor_routing import (
     route_after_compliance,
     route_after_operations,
     route_after_problem_solver,
     route_after_security,
     route_after_supervisor,
-    supervisor_post_compliance_node,
 )
 
 
