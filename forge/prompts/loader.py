@@ -34,3 +34,14 @@ def clear_prompt_cache() -> None:
 
 def list_registered_agents() -> list[str]:
     return sorted(_AGENT_PROMPT_MODULES)
+
+
+def get_prompt(agent: str, name: str) -> str:
+    """Load a single prompt constant by agent and attribute name."""
+    mod = load_prompts(agent)
+    if not hasattr(mod, name):
+        raise AttributeError(f"Prompt '{name}' not found for agent '{agent}'")
+    value = getattr(mod, name)
+    if not isinstance(value, str):
+        raise TypeError(f"Prompt '{name}' for agent '{agent}' is not a string")
+    return value

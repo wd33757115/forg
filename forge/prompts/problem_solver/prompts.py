@@ -47,8 +47,10 @@ PROBLEM_SOLVER_REACT_TASK = """请分析以下问题：**先确认问题类型**
 - 当前阶段: {current_phase}
 - 启用模块: {enabled_modules}
 
-## 历史案例
+## 历史案例（knowledge_base — 可引用 outcome / related_rules）
 {prior_cases}
+
+若历史案例与当前问题相关，在 reasoning 中说明如何借鉴或规避重复失败。
 
 ## 调查清单（逐项执行，Observation 中记录 rule_id）
 1. `get_current_project_state` + `analyze_impact`
@@ -89,6 +91,8 @@ PROBLEM_SOLVER_STRUCTURED_PROMPT = """基于问题与调研材料，输出 **Sol
 | solutions | ≥2 个，含 id/title/description/approach/trade_offs/compliance_impact/itil_guidance/estimated_effort/risk_level |
 | recommended_solution_id | 必须存在于 solutions |
 | decision_rationale | 1–3 句：为何推荐该方案，须引用 ≥1 条 rule_id |
+| reasoning | 分步推理：类型判断 → 工具证据 → 方案对比 → 推荐结论（须含 rule_id） |
+| confidence | 0.0–1.0，基于证据充分度与 Rule Pack 覆盖的自评置信度 |
 | next_actions | ≥3 条，含责任角色 |
 | dengbao_considerations | 等保控制项列表（含 rule_id） |
 | itil_considerations | ITIL 流程考量（含 rule_id） |

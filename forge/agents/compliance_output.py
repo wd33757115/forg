@@ -7,6 +7,16 @@ from pydantic import BaseModel, Field
 from forge.agents.output_base import AgentOutputBase
 
 
+class FailedCheckItem(BaseModel):
+    """A compliance gap with canonical rule_id for explainability."""
+
+    rule_id: str
+    module: str = ""
+    title: str = ""
+    description: str = ""
+    status: str = Field(default="fail", description="fail | warning")
+
+
 class CheckItem(BaseModel):
     """A single compliance check item within a module."""
 
@@ -52,3 +62,15 @@ class ComplianceOutput(AgentOutputBase):
     missing_items: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     next_action: str = ""
+    matched_rules: list[str] = Field(
+        default_factory=list,
+        description="All canonical rule_ids observed in check items",
+    )
+    failed_items: list[FailedCheckItem] = Field(
+        default_factory=list,
+        description="Failed/warning items (filtered by check_mode)",
+    )
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Actionable remediation suggestions tied to rule_ids",
+    )

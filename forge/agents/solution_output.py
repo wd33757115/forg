@@ -73,3 +73,13 @@ class SolutionOutput(AgentOutputBase):
         default="",
         description="Why the recommended solution was chosen (explainability)",
     )
+    reasoning: str = Field(
+        default="",
+        description="Detailed reasoning chain: classification → evidence → options → recommendation",
+    )
+    confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Self-assessed confidence in the recommended solution (0-1)",
+    )

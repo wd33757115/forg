@@ -15,10 +15,10 @@ prompts/
 根目录 `*_prompt.py` 仅为**向后兼容重导出**。Agent 与业务代码请经中央 loader 引用（解耦）：
 
 ```python
-from forge.prompts.loader import load_prompts
+from forge.prompts.loader import get_prompt, load_prompts
 
-_ps = load_prompts("problem_solver")
-PROBLEM_SOLVER_SYSTEM = _ps.PROBLEM_SOLVER_SYSTEM
+PROBLEM_SOLVER_SYSTEM = get_prompt("problem_solver", "PROBLEM_SOLVER_SYSTEM")
+# 或：_ps = load_prompts("problem_solver"); PROBLEM_SOLVER_SYSTEM = _ps.PROBLEM_SOLVER_SYSTEM
 ```
 
 新增 Agent 时在 `loader.py` 的 `_AGENT_PROMPT_MODULES` 注册模块名。

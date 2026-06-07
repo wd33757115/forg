@@ -16,7 +16,10 @@ from forge.agents.compliance_output import (
 from forge.agents.solution_output import SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ComplianceResult, ProjectState
 from forge.prompts.loader import load_prompts
-from forge.utils.compliance_explain import build_check_explanations
+from forge.utils.compliance_explain import (
+    build_check_explanations,
+    enrich_compliance_output,
+)
 
 _cp = load_prompts("compliance")
 COMPLIANCE_REACT_TASK = _cp.COMPLIANCE_REACT_TASK
@@ -105,7 +108,7 @@ class ComplianceAgent(BaseAgent):
             for mod in payload["results"]
         ]
 
-        return ComplianceOutput(
+        base = ComplianceOutput(
             overall_status=payload["overall_status"],
             risk_level=payload["risk_level"],
             protection_level=payload.get("protection_level"),
@@ -114,6 +117,7 @@ class ComplianceAgent(BaseAgent):
             recommendations=payload["recommendations"],
             next_action=payload["next_action"],
         )
+        return enrich_compliance_output(base, check_mode=resolve_check_mode(state))
 
     def _synthesize_structured(
         self,
@@ -173,7 +177,7 @@ class ComplianceAgent(BaseAgent):
             critical_fails=critical_fails,
             check_mode=check_mode,
         )
-        return ComplianceOutput(
+        base = ComplianceOutput(
             overall_status=overall,
             risk_level=risk,
             protection_level=output.protection_level or self._get_protection_level(state),
@@ -182,6 +186,7 @@ class ComplianceAgent(BaseAgent):
             recommendations=output.recommendations,
             next_action=output.next_action,
         )
+        return enrich_compliance_output(base, check_mode=check_mode)
 
     def _format_response(self, output: ComplianceOutput) -> str:
         lines = [

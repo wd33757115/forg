@@ -174,6 +174,13 @@ class ForgeDemoDisplay(ForgeDisplay):
         if rationale:
             body.add_row("决策依据", rationale[:300])
 
+        reasoning = solution.get("reasoning")
+        if reasoning:
+            body.add_row("推理过程", reasoning[:400])
+
+        if solution.get("confidence") is not None:
+            body.add_row("方案置信度", f"{float(solution['confidence']):.0%}")
+
         self._console.print(Panel(body, title="② ProblemSolver 方案", border_style="blue"))
 
     def _print_compliance_panel(self, result: dict[str, Any], stats: dict[str, Any]) -> None:
@@ -214,6 +221,19 @@ class ForgeDemoDisplay(ForgeDisplay):
             if len(missing) > 5:
                 miss += f"\n[dim]… 另有 {len(missing) - 5} 项[/]"
             content.add_row(Panel(miss, title="缺口", border_style="yellow"))
+
+        failed = compliance.get("failed_items") or []
+        if failed:
+            fail_lines = "\n".join(
+                f"• [{f.get('status')}] `{f.get('rule_id', '—')}` {f.get('title', '')[:50]}"
+                for f in failed[:6]
+            )
+            content.add_row(Panel(fail_lines, title=f"失败项 ({mode})", border_style="red"))
+
+        suggestions = compliance.get("suggestions") or []
+        if suggestions:
+            sug = "\n".join(f"• {s[:90]}" for s in suggestions[:5])
+            content.add_row(Panel(sug, title="整改建议", border_style="cyan"))
 
         explanations = compliance.get("check_explanations") or []
         if explanations:

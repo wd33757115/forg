@@ -58,6 +58,16 @@ def generate_run_report(
         f"- 资料生成: {stats.get('documents_generated', 0)} 份",
         f"- 风险等级: {stats.get('risk_level', '—')}",
         "",
+        "## 决策链路",
+        "",
+        f"1. **问题类型** → `{solution.get('problem_type', state.get('problem_type', '—'))}`",
+        f"2. **推荐方案** → `{solution.get('recommended_solution_id', '—')}`"
+        + (f"（自评置信度 {solution.get('confidence')}）" if solution.get("confidence") is not None else ""),
+        f"3. **合规结论** → {compliance.get('compliance_status', compliance.get('overall_status', '—'))}"
+        f"（{compliance.get('check_mode', '—')}）",
+        f"4. **会话置信度** → {state.get('confidence_score', '—')} / {state.get('confidence_recommendation', '—')}",
+        f"5. **审批执行** → {state.get('approval_status', '—')}",
+        "",
         "## ProblemSolver 方案",
         "",
         f"- **类型**: {solution.get('problem_type', state.get('problem_type', '—'))}",
@@ -78,6 +88,13 @@ def generate_run_report(
     if rationale:
         lines.extend(["### 决策依据", "", rationale, ""])
 
+    reasoning = solution.get("reasoning")
+    if reasoning:
+        lines.extend(["### 推理过程", "", reasoning[:1200], ""])
+    if solution.get("confidence") is not None:
+        lines.append(f"- **方案自评置信度**: {solution.get('confidence')}")
+        lines.append("")
+
     lines.extend(
         [
             "## Compliance 检查结果",
@@ -94,6 +111,29 @@ def generate_run_report(
         lines.append("### 合规缺口")
         for m in missing[:10]:
             lines.append(f"- {m}")
+        lines.append("")
+
+    matched = compliance.get("matched_rules") or []
+    if matched:
+        lines.append("### 匹配规则 (matched_rules)")
+        lines.append(", ".join(f"`{r}`" for r in matched[:12]))
+        lines.append("")
+
+    failed = compliance.get("failed_items") or []
+    if failed:
+        lines.append("### 合规失败项")
+        for f in failed[:10]:
+            lines.append(
+                f"- `[{f.get('status')}]` `{f.get('rule_id', '—')}` "
+                f"({f.get('module', '?')}) {f.get('title', '')}: {(f.get('description') or '')[:80]}"
+            )
+        lines.append("")
+
+    suggestions = compliance.get("suggestions") or []
+    if suggestions:
+        lines.append("### 整改建议 (suggestions)")
+        for s in suggestions[:8]:
+            lines.append(f"- {s}")
         lines.append("")
 
     explanations = compliance.get("check_explanations") or []

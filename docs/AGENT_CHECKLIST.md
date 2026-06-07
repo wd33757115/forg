@@ -21,7 +21,8 @@
 ## 4. Prompts
 
 - [ ] `forge/prompts/<name>/prompts.py` — SYSTEM / REACT / STRUCTURED
-- [ ] 在 `forge/prompts/loader.py` 注册模块；Agent 通过 `load_prompts("<name>")` 引用，**不**直引 `prompts.<name>.prompts`
+- [ ] 在 `forge/prompts/loader.py` 注册模块；Agent 通过 `load_prompts("<name>")` 或 `get_prompt("<name>", "FOO_SYSTEM")` 引用，**不**直引 `prompts.<name>.prompts`
+- [ ] 结构化输出继承 `AgentOutputBase`（`agents/output_base.py`），实现 `to_state_dict()` / `to_display_json()`
 
 ## 5. Supervisor 路由（如需要）
 

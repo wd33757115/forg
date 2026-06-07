@@ -415,6 +415,7 @@ class ProblemSolverAgent(BaseAgent):
                 research_context=research_context,
             )
         self._ensure_decision_rationale(output)
+        self._ensure_reasoning_confidence(output)
         return output
 
     @staticmethod
@@ -431,6 +432,28 @@ class ProblemSolverAgent(BaseAgent):
             f"推荐 {output.recommended_solution_id}：{recommended.title if recommended else ''}；"
             f"基于 {ref_count} 条 Rule Pack 引用与问题类型 {output.problem_type}。"
         )
+
+    @staticmethod
+    def _ensure_reasoning_confidence(output: SolutionOutput) -> None:
+        """Fill reasoning and confidence when structured output omitted them."""
+        if not output.reasoning:
+            refs = ", ".join(r.rule_id for r in (output.rule_pack_references or [])[:4])
+            causes = "；".join(output.root_causes[:3]) if output.root_causes else "待补充"
+            output.reasoning = (
+                f"1) 问题类型={output.problem_type}；"
+                f"2) 根因：{causes}；"
+                f"3) Rule Pack 引用：{refs or '无'}；"
+                f"4) 推荐 {output.recommended_solution_id}：{output.decision_rationale[:120]}"
+            )
+        if output.confidence == 0.5:
+            ref_n = len(output.rule_pack_references or [])
+            ref_score = min(1.0, ref_n / 3.0)
+            sol_score = 1.0 if len(output.solutions) >= 2 else 0.6
+            rationale_score = 1.0 if output.decision_rationale else 0.5
+            output.confidence = round(
+                min(1.0, max(0.0, 0.45 * ref_score + 0.35 * sol_score + 0.20 * rationale_score)),
+                2,
+            )
 
     def _format_response(self, solution: SolutionOutput) -> str:
         """Human-readable response with embedded JSON block."""
