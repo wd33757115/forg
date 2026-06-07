@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-06-07T15:00:33.795327+00:00",
+  "overall_pass": true,
+  "offline_pass": true,
+  "kpis": [
+    {
+      "kpi_id": "PS-STR-01",
+      "name": "输出结构完整性",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "3/3 runs structurally complete",
+      "inverted": false
+    },
+    {
+      "kpi_id": "PS-REF-01",
+      "name": "Rule Pack 引用命中率",
+      "value": 1.0,
+      "threshold": 0.75,
+      "passed": true,
+      "detail": "3/3 scenarios with refs",
+      "inverted": false
+    },
+    {
+      "kpi_id": "PS-REF-02",
+      "name": "高贴切引用占比 (≥0.7)",
+      "value": 0.708,
+      "threshold": 0.6,
+      "passed": true,
+      "detail": "per-scenario: [0.88, 0.62, 0.62]",
+      "inverted": false
+    },
+    {
+      "kpi_id": "PS-REF-03",
+      "name": "minimum_pad 占比上限",
+      "value": 0.0,
+      "threshold": 0.25,
+      "passed": true,
+      "detail": "max pad ratio across scenarios: 0.0%",
+      "inverted": true
+    },
+    {
+      "kpi_id": "PS-EXP-01",
+      "name": "reasoning 含 rule_id",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "3/3",
+      "inverted": false
+    },
+    {
+      "kpi_id": "PS-CLS-01",
+      "name": "问题分类准确率",
+      "value": 1.0,
+      "threshold": 0.8,
+      "passed": true,
+      "detail": "12/12",
+      "inverted": false
+    },
+    {
+      "kpi_id": "PS-RUB-01",
+      "name": "LLM 人工评分均分",
+      "value": 5.0,
+      "threshold": 3.5,
+      "passed": true,
+      "detail": "scenarios=3",
+      "inverted": false
+    },
+    {
+      "kpi_id": "CA-MAP-01",
+      "name": "check item rule_id 映射率",
+      "value": 1.0,
+      "threshold": 0.95,
+      "passed": true,
+      "detail": "strict mode, 49 items",
+      "inverted": false
+    },
+    {
+      "kpi_id": "CA-MOD-01",
+      "name": "check_mode 差异化",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "failed counts: {'strict': 48, 'advisory': 46, 'lenient': 33}",
+      "inverted": false
+    },
+    {
+      "kpi_id": "CA-EXP-01",
+      "name": "failed_items severity+suggestion",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "48/48",
+      "inverted": false
+    },
+    {
+      "kpi_id": "CA-STA-01",
+      "name": "compliance_status 一致性",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "status=non_compliant failed=48",
+      "inverted": false
+    },
+    {
+      "kpi_id": "CA-RUB-01",
+      "name": "已知缺口检出率",
+      "value": 1.0,
+      "threshold": 1.0,
+      "passed": true,
+      "detail": "detected 1/1 of ['db-acs-001']",
+      "inverted": false
+    }
+  ],
+  "failures": []
+}

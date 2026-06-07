@@ -2,6 +2,7 @@
 
 > 与整体架构愿景对齐的可执行路线图 | 更新：2026-06-07  
 > **验收刻度（路径 A）**：[`PATH_A_QUALITY.md`](PATH_A_QUALITY.md) — W1 已签收  
+> **核心能力 Scorecard**：[`CORE_CAPABILITY_SCORECARD.md`](CORE_CAPABILITY_SCORECARD.md) — `eval_core_capability.py`  
 > **当前版本规划**：[`V1.2_ROADMAP.md`](V1.2_ROADMAP.md)  
 > 交付签收：`STAGE1_SIGNOFF.md` · 质量收口：`QUALITY_POLISH.md` · 全量任务表：`IMPLEMENTATION_PLAN.md` §22
 

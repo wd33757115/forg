@@ -1,0 +1,79 @@
+{
+  "version": "1.0",
+  "description": "ProblemSolver golden classification set (PS-CLS-01)",
+  "target_accuracy": 0.8,
+  "cases": [
+    {
+      "id": "cls-01",
+      "question": "等保三级登录401认证失败",
+      "hint": null,
+      "expected": "security"
+    },
+    {
+      "id": "cls-02",
+      "question": "用户登录接口返回401请诊断",
+      "hint": null,
+      "expected": "security"
+    },
+    {
+      "id": "cls-03",
+      "question": "登录401认证故障请诊断",
+      "hint": null,
+      "expected": "security"
+    },
+    {
+      "id": "cls-04",
+      "question": "ITIL事件核心交换机中断SLA违约",
+      "hint": null,
+      "expected": "service_management"
+    },
+    {
+      "id": "cls-05",
+      "question": "P1事件：核心交换机故障导致业务中断",
+      "hint": null,
+      "expected": "service_management"
+    },
+    {
+      "id": "cls-06",
+      "question": "变更管理CAB审批流程如何落地",
+      "hint": null,
+      "expected": "service_management"
+    },
+    {
+      "id": "cls-07",
+      "question": "数据库连接池耗尽导致接口超时",
+      "hint": null,
+      "expected": "technical"
+    },
+    {
+      "id": "cls-08",
+      "question": "微服务接口latency升高需要性能优化",
+      "hint": null,
+      "expected": "technical"
+    },
+    {
+      "id": "cls-09",
+      "question": "等保401认证失败同时核心交换机故障中断",
+      "hint": null,
+      "expected": "mixed"
+    },
+    {
+      "id": "cls-10",
+      "question": "等保三级身份鉴别整改同时SLA违约事件升级",
+      "hint": null,
+      "expected": "mixed"
+    },
+    {
+      "id": "cls-11",
+      "question": "数据库超时",
+      "hint": "security",
+      "expected": "security"
+    },
+    {
+      "id": "cls-12",
+      "question": "数据库连接池耗尽",
+      "hint": "general",
+      "expected": "technical"
+    }
+  ]
+}

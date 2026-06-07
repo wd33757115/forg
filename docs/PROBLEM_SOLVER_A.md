@@ -1,6 +1,7 @@
 # ProblemSolver 深度优化（A 专项）签收说明
 
-> 对应质量收口选项 **A**；基线测试：`tests/test_problem_solver_a.py`
+> 对应质量收口选项 **A**；基线测试：`tests/test_problem_solver_a.py`  
+> 总验收：[`CORE_CAPABILITY_SCORECARD.md`](CORE_CAPABILITY_SCORECARD.md)（PS-* KPI）
 
 ## 已实现
 

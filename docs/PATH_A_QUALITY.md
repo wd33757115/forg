@@ -2,7 +2,8 @@
 
 > **目标**：从「框架已齐」推进到 **v1.0 验收刻度** 可演示、可解释、可维护。  
 > **原则**：先度量再改代码；LLM 路径与离线路径分开验收；不新增 v1.2 功能（向量检索 / Web UI / 真实 CMDB）。  
-> **基线**：212 offline tests（`-m "not llm"`）；参考 `STAGE1_SIGNOFF.md`（交付刻度）。
+> **基线**：239+ offline tests（`-m "not llm"`）；参考 `STAGE1_SIGNOFF.md`（交付刻度）。  
+> **核心能力签收**：以 [`CORE_CAPABILITY_SCORECARD.md`](CORE_CAPABILITY_SCORECARD.md) + `scripts/eval_core_capability.py` 为准。
 
 ---
 

@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "description": "Compliance golden fixture for CA-* offline KPIs",
+  "seed_state": {
+    "project_id": "ca-golden",
+    "current_phase": "implementation",
+    "message": "等保三级合规检查与方案校验",
+    "protection_level": "3",
+    "wbs": {
+      "design": {"name": "设计", "status": "done"},
+      "implementation": {"name": "实施", "status": "pending"}
+    },
+    "documents": [{"title": "技术方案", "doc_type": "方案"}]
+  },
+  "mode_expectations": {
+    "strict": {"min_failed_items": 1},
+    "advisory": {"min_failed_items": 1},
+    "lenient": {"min_failed_items": 0}
+  },
+  "require_strict_ge_lenient_failed": true,
+  "require_modes_not_identical": true,
+  "rule_id_mapping_target": 0.95,
+  "known_gap_rule_ids": ["db-acs-001"]
+}

@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "description": "Offline ProblemSolver heuristic scenarios for PS-REF-* KPIs",
+  "cases": [
+    {
+      "id": "sol-security",
+      "question": "用户登录接口返回401，等保三级身份鉴别",
+      "problem_type": "security",
+      "classification_reason": "等保/安全关键词"
+    },
+    {
+      "id": "sol-itil",
+      "question": "ITIL事件核心交换机中断SLA违约",
+      "problem_type": "service_management",
+      "classification_reason": "ITIL/运维关键词"
+    },
+    {
+      "id": "sol-mixed",
+      "question": "等保401认证失败同时核心交换机故障中断",
+      "problem_type": "mixed",
+      "classification_reason": "安全与运维中断并存"
+    }
+  ]
+}

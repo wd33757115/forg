@@ -25,7 +25,7 @@ def check_item_rule_id(item: CheckItem) -> str:
 
 
 def compliance_rule_id_mapping_rate(output: ComplianceOutput) -> float:
-    """Fraction of check items with a canonical rule_id (target ≥ 80%)."""
+    """Fraction of check items with a canonical rule_id (target ≥ 95%, CA-MAP-01)."""
     items = [item for mod in output.results for item in mod.items]
     if not items:
         return 0.0

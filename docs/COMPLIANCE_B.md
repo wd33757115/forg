@@ -1,6 +1,7 @@
 # Compliance 深度优化（B 专项）签收说明
 
-> 测试：`tests/test_compliance_b.py` · 模式对比：`scripts/compliance_mode_diff.py`
+> 测试：`tests/test_compliance_b.py` · 模式对比：`scripts/compliance_mode_diff.py`  
+> 总验收：[`CORE_CAPABILITY_SCORECARD.md`](CORE_CAPABILITY_SCORECARD.md)（CA-* KPI）
 
 ## 已实现
 
