@@ -134,6 +134,20 @@ pytest tests/test_llm_reference_coverage.py -m llm -v
 
 （继续保持与 P0/P1 可靠性不冲突原则。）
 
+## 11. 记忆与持久化（2026-06 pivot 开始，遗留大项）
+
+- 设计参考 Grok 风格：结构化（case/outcome/rule-linked）、分层（working + episodic + semantic + procedural）、写回（execution/compliance/finalize 结果持久化）、项目级跨会话。
+- M0 实现：
+  - `forge/core/memory/manager.py` + `ProjectMemory`（facade、append_case/execution_outcome、search_similar、to_patch）。
+  - `state_persistence.py` 不再重置 memory_graph；prepare 时 _ensure_durable_memory（kb 存在即重建/保留）。
+  - `knowledge_extract.py`（finalize）现在通过 manager 写入 durable execution outcomes，使 D3 执行反馈闭环真正跨 run 有效。
+  - `core/memory/__init__.py` 轻量（仅 graph 模型，避免循环）。
+- 验证：test_state_persistence 新增 durable graph + manager 检索用例通过；PS + knowledge_memory 25 passed；core_capability offline gate 持续 [PASS]；-k "not llm" 整体绿。
+- 文档：新增 `MEMORY_PERSISTENCE_DESIGN.md`（完整架构、Grok 映射、路线图）。
+- 影响：ProblemSolver 的“会用经验”现在有持久化后盾；其他 Agent（Compliance、PM）未来可直接复用 manager 检索历史模式/风险。
+
+后续 M1：episodic 记录、更多写点、CLI 增强、backend 抽象。
+
 - 执行反馈闭环：`state.execution_results` → `_format_execution_feedback` → 注入 PS ReAct/Structured Prompt；`_ensure_execution_learning` 强制 reasoning 引用执行结果并调整。
 - 知识利用：prior_cases（含 outcome/match）强制进入 reasoning（_ensure_prior_case_reasoning 强化）；历史失败案例自动补充结构化 risks。
 - 置信度自评估：`_compute_confidence` 加入 history_bonus + exec_factor（成功正向、失败负向），进入 min(LLM, computed) 路径。

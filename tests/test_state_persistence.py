@@ -51,3 +51,41 @@ def test_prepare_state_for_run_preserves_knowledge(tmp_path: Path):
     assert prepared["last_solution"] is None
     assert prepared["run_id"]
     assert any("新问题" in str(m.content) for m in prepared["messages"])
+
+
+def test_m0_memory_graph_durable_across_runs(tmp_path: Path):
+    """M0 persistence: memory_graph (project memory) survives prepare and enables cross-run retrieval."""
+    from forge.utils.knowledge_memory import rebuild_memory_graph
+    from forge.core.memory.manager import ProjectMemory
+
+    state = create_initial_state("mem-durable")
+    # Seed a prior case (like a previous finalize would have done)
+    kb_entry = {
+        "id": "kb-prior-1",
+        "category": "case",
+        "content": "等保登录401曾用重置密码+审计加固解决",
+        "source": "forge_finalize",
+        "tags": ["security", "session_summary", "success"],
+        "type": "case",
+        "related_rules": ["db-acs-001"],
+        "outcome": "success",
+    }
+    state["knowledge_base"] = [kb_entry]
+    state["memory_graph"] = rebuild_memory_graph(state["knowledge_base"])
+
+    path = tmp_path / "mem.json"
+    save_state(state, path)
+
+    loaded, _ = load_state_with_metadata(path)
+    # prepare (new run) should carry the graph (M0 change)
+    prepared = prepare_state_for_run(loaded, "新的登录401问题", protection_level="3")
+
+    assert prepared.get("memory_graph") is not None
+    assert any(n.get("node_type") == "rule" and n.get("label") == "db-acs-001" for n in (prepared["memory_graph"].get("nodes") or []))
+
+    # Manager can retrieve the prior case with graph boost
+    mem = ProjectMemory.from_state(prepared)
+    hits = mem.search_similar_cases(problem_type="security", problem_text="登录401认证失败", limit=3)
+    assert len(hits) >= 1
+    # The prior success case should be findable (tag + rule overlap)
+    assert any("db-acs" in str(h.get("related_rules", [])) or "401" in str(h.get("content", "")) for h in hits)

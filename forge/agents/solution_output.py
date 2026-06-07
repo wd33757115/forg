@@ -137,3 +137,9 @@ class SolutionOutput(AgentOutputBase):
         default="",
         description="Relevant snapshot of WBS / phase / known risks at analysis time (for explainability)",
     )
+
+    # Explicit related knowledge field per strict prompt requirements
+    related_knowledge: list[str] = Field(
+        default_factory=list,
+        description="Retrieved relevant historical case IDs or summaries from knowledge_base (e.g. 'kb-xxx: summary' or IDs)",
+    )

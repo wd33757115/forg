@@ -239,3 +239,71 @@ def test_d3_confidence_includes_history_and_exec():
     with_exec = ProblemSolverAgent._compute_confidence(sol, research_context="db-acs-001", execution_results=execs)
     assert with_hist >= base - 0.001  # positive history should not decrease
     assert with_exec >= base - 0.001
+
+
+# --- Strict prompt/code requirements tests (等保 / ITIL / mixed + quality) ---
+
+@pytest.mark.parametrize(
+    "question,ptype_hint,expected_rule_prefixes",
+    [
+        ("等保三级登录401认证失败，需要诊断与整改", "security", ("db-",)),
+        ("ITIL事件：核心交换机中断导致SLA违约，请处理", "itil", ("itil-",)),
+        ("等保身份鉴别整改同时发生P1事件中断", None, ("db-", "itil-")),  # mixed should pull from both
+    ],
+)
+def test_ps_strict_requirements_scenarios(base_state, question, ptype_hint, expected_rule_prefixes):
+    """Covers 等保, ITIL, mixed. Verifies rule_pack_references validity + reasoning depth + related_knowledge + risks."""
+    from forge.agents.problem_solver import ProblemSolverAgent
+    from forge.utils.knowledge_memory import search_similar_cases
+
+    if ptype_hint:
+        base_state["problem_type_hint"] = ptype_hint
+
+    # Seed a bit of knowledge_base so related_knowledge can be populated (tests the injection path)
+    base_state["knowledge_base"] = [
+        {"id": "kb-sec-1", "content": "等保登录401历史用重置+审计加固解决", "tags": ["security"], "outcome": "success", "related_rules": ["db-acs-001"]},
+        {"id": "kb-itil-1", "content": "P1交换机中断事件走incident+变更流程恢复", "tags": ["service_management"], "outcome": "resolved", "related_rules": ["itil-inc-001"]},
+    ]
+
+    agent = ProblemSolverAgent()
+    # Use heuristic path (reliable for tests)
+    research = run_tool_research(base_state, question)
+    # Also exercise the knowledge_helpers path indirectly via search_similar (the code now calls search_knowledge directly too)
+    prior = search_similar_cases(base_state, problem_type="security" if "401" in question or "等保" in question else "service_management", problem_text=question, limit=2)
+
+    sol = agent._build_heuristic_solution(
+        base_state, question, research, "security" if "401" in question or "等保" in question else ("service_management" if "ITIL" in question or "事件" in question else "mixed"), "test"
+    )
+    validated = agent._validate_solution_output(
+        sol,
+        problem_statement=question,
+        problem_type=("security" if "401" in question or "等保" in question else ("service_management" if "ITIL" in question or "事件" in question else "mixed")),
+        research_context=research,
+        state=base_state,
+    )
+
+    # rule_pack_references must have >=2 and valid relevant prefixes
+    assert len(validated.rule_pack_references) >= 2, "rule_pack_references 必须至少2条"
+    prefixes = tuple(p for p in expected_rule_prefixes)
+    has_valid = any(any(r.rule_id.startswith(pref) for pref in prefixes) for r in validated.rule_pack_references)
+    assert has_valid, f"rule_pack_references 应包含有效相关规则前缀 {prefixes}"
+
+    # reasoning must be structured and cover the required analysis points
+    r = (validated.reasoning or "").lower()
+    assert len(r) > 80, "reasoning 必须有足够深度"
+    # The 5 points in Chinese or English markers from our prompt
+    assert any(k in r for k in ["问题分析", "规则依据", "历史参考", "风险考量", "最终方案", "1)", "2)", "3)"]), "reasoning 必须结构化体现5点分析"
+
+    # related_knowledge or explicit "未检索到" statement
+    has_related = bool(getattr(validated, "related_knowledge", None)) or "未检索到相关历史案例" in (validated.reasoning or "") or "知识库" in (validated.reasoning or "")
+    assert has_related, "必须有 related_knowledge 或明确说明未检索到"
+
+    # confidence present with some basis (we set it)
+    assert 0.0 <= validated.confidence <= 1.0
+
+    # risks >=2
+    assert len(validated.risks or []) >= 2, "risks 必须至少2个"
+
+    # No total emptiness
+    assert validated.decision_rationale
+    assert validated.next_actions and len(validated.next_actions) >= 1

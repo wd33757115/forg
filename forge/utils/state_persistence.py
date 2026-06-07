@@ -11,11 +11,17 @@ from uuid import uuid4
 from langchain_core.messages import HumanMessage, messages_from_dict, messages_to_dict
 
 from forge.core.state import ProjectState, create_initial_state
+from forge.utils.knowledge_memory import rebuild_memory_graph  # M0: for durable memory_graph carry/merge
 
 DEFAULT_STATE_DIR = Path(".forge_state")
 STATE_FORMAT_VERSION = 2
 
 # Fields reset when starting a new workflow run on top of saved state
+# Note (M0 memory persistence): memory_graph is deliberately *not* reset here.
+# It represents durable project memory (case ↔ rule linkages) that should survive
+# across runs, just like knowledge_base. On prepare we will ensure it is present
+# (merge from loaded or rebuild from kb if missing). Episodic signals (e.g. recent
+# execution outcomes) can be selectively re-ingested via MemoryManager later.
 _RUN_RESET_FIELDS: dict[str, Any] = {
     "compliance_retry_count": 0,
     "compliance_feedback": None,
@@ -35,14 +41,14 @@ _RUN_RESET_FIELDS: dict[str, Any] = {
     "pipeline_trace": [],
     "agent_errors": [],
     "execution_tasks": [],
-    "execution_results": [],
+    "execution_results": [],   # per-run; durable memory layer (future episodic) will capture outcomes
     "approval_requests": [],
     "pending_approvals": [],
     "approval_status": None,
     "confidence_level": None,
     "confidence_recommendation": None,
     "last_confidence_result": None,
-    "memory_graph": None,
+    # memory_graph intentionally omitted — durable project memory
 }
 
 
@@ -183,6 +189,24 @@ def list_saved_states(*, base_dir: str | Path | None = None) -> list[dict[str, A
     return results
 
 
+def _ensure_durable_memory(prepared: dict[str, Any]) -> None:
+    """M0 memory persistence: ensure memory_graph survives across runs (Grok-style durable project memory).
+
+    - If a graph was loaded with the state, keep it (it may be richer than a fresh rebuild).
+    - If missing but we have knowledge_base, (re)build it so search_similar_cases + graph boost work immediately.
+    - This makes prior-case retrieval, outcome bias, and D3-style execution learning durable across saved sessions.
+    """
+    kb = prepared.get("knowledge_base") or []
+    if prepared.get("memory_graph") is None and kb:
+        try:
+            prepared["memory_graph"] = rebuild_memory_graph(kb)
+        except Exception:
+            # best-effort; don't block run
+            prepared["memory_graph"] = {"nodes": [], "edges": []}
+    elif prepared.get("memory_graph") is None:
+        prepared["memory_graph"] = {"nodes": [], "edges": []}
+
+
 def prepare_state_for_run(
     state: ProjectState,
     question: str,
@@ -193,7 +217,11 @@ def prepare_state_for_run(
     """
     Prepare a loaded (or fresh) state for a new workflow invocation.
 
-    Preserves knowledge_base, documents, wbs; resets per-run outputs when requested.
+    Preserves knowledge_base, documents, wbs + durable memory (memory_graph).
+    Resets per-run outputs when requested.
+    M0: memory_graph is now treated as long-term project memory (like kb) and is
+    ensured/rebuild on prepare so cross-run retrieval (search_similar_cases) works
+    without requiring a prior finalize in the same Python process.
     """
     prepared = dict(state)
 
@@ -210,6 +238,9 @@ def prepare_state_for_run(
     if not rule_pack.get("pack_id"):
         rule_pack["pack_id"] = "system_integration_v1"
     prepared["rule_pack"] = rule_pack
+
+    # M0: guarantee durable memory layer is present for the new run
+    _ensure_durable_memory(prepared)
 
     return ProjectState(**{k: prepared[k] for k in ProjectState.__annotations__})
 

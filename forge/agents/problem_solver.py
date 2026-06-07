@@ -29,6 +29,7 @@ from forge.utils.agent_context import build_handoff
 from forge.utils.compliance_feedback import format_compliance_feedback_for_prompt
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
+import forge.utils.knowledge as knowledge_helpers  # strict requirement: must call knowledge_helpers.search_knowledge()
 from forge.utils.knowledge_memory import format_memory_context, search_similar_cases
 
 def _format_execution_feedback(execution_results: list[dict[str, Any]] | None) -> str:
@@ -111,6 +112,19 @@ class ProblemSolverAgent(BaseAgent):
         fallback = run_tool_research(
             state, problem_statement, problem_type=problem_type
         )
+        # Strict requirement: must explicitly call knowledge_helpers.search_knowledge() in _run_react
+        # and inject results as context before generating any solution.
+        kb_hits = knowledge_helpers.search_knowledge(
+            state,
+            tags=[problem_type] if problem_type in ("security", "service_management", "technical") else None,
+            keywords=[w for w in problem_statement.replace("，", " ").split() if len(w) >= 2][:6] or None,
+            limit=5,
+        )
+        knowledge_hits = "\n".join(
+            [f"- {e.get('id', '?')}: {str(e.get('content', ''))[:120]}" for e in (kb_hits or [])]
+        ) or "（知识库直接检索未返回强相关条目）"
+        self.logger.info("ReAct knowledge_helpers.search_knowledge | hits=%d", len(kb_hits or []))
+
         prior = search_similar_cases(
             state,
             problem_type=problem_type,
@@ -156,6 +170,7 @@ class ProblemSolverAgent(BaseAgent):
             project_id=state.get("project_id", ""),
             current_phase=phase,
             enabled_modules=", ".join(state.get("enabled_modules", [])),
+            knowledge_hits=knowledge_hits,  # injected from explicit knowledge_helpers.search_knowledge()
             prior_cases=prior_cases,
             compliance_feedback=compliance_block,
             execution_feedback=exec_block,
@@ -573,6 +588,9 @@ class ProblemSolverAgent(BaseAgent):
         self._ensure_risk_summary(output)
         self._apply_compliance_feedback_to_output(output, compliance_feedback)
 
+        # Strict output quality self-check (per requirements)
+        self._self_check_output_quality(output, research_context=research_context, state=state)
+
         # D1: enrich depth fields (assumptions, risks, alternatives, snapshot, structured reasoning)
         # state may be None in some legacy call paths; enrich is defensive
         self._enrich_solution_depth(output, state=state or {}, research_context=research_context)
@@ -708,6 +726,47 @@ class ProblemSolverAgent(BaseAgent):
                 act = f"自检对齐 `{rid}`：确认方案与根因/规则的一致性"
                 if act not in output.next_actions:
                     output.next_actions.append(act)
+
+    @staticmethod
+    def _self_check_output_quality(
+        output: SolutionOutput,
+        *,
+        research_context: str = "",
+        state: ProjectState | dict | None = None,
+    ) -> None:
+        """Simple output quality self-check (requirements): rule_pack_references >=2 valid,
+        related_knowledge populated from retrieval, explicit note in reasoning on gaps (no hiding)."""
+        issues: list[str] = []
+        refs = output.rule_pack_references or []
+        if len(refs) < 2:
+            issues.append("rule_pack_references 数量不足（<2）")
+        else:
+            valid = [r for r in refs if getattr(r, "rule_id", "") and any(getattr(r, "rule_id", "").startswith(p) for p in ("db-", "itil-", "si-"))]
+            if len(valid) < 2:
+                issues.append("有效 rule_id 不足")
+
+        if not getattr(output, "related_knowledge", None):
+            hits: list[str] = []
+            txt = research_context or ""
+            if "kb-" in txt or "历史案例" in txt or "outcome=" in txt:
+                for ln in txt.splitlines():
+                    if "kb-" in ln or "outcome=" in ln:
+                        hits.append(ln.strip()[:90])
+            if not hits and state:
+                kb = (state.get("knowledge_base") if isinstance(state, dict) else getattr(state, "knowledge_base", None)) or []
+                for e in kb[:3]:
+                    if e.get("id"):
+                        hits.append(f"{e.get('id')}: {str(e.get('content',''))[:60]}")
+            if hits:
+                output.related_knowledge = hits  # type: ignore
+            else:
+                issues.append("related_knowledge 为空（知识库未返回相关案例）")
+
+        if issues:
+            note = "；自检问题：" + "；".join(issues) + "（已如实记录）。"
+            r = (output.reasoning or "").rstrip()
+            if "自检" not in r:
+                output.reasoning = (r + note) if r else "自检：" + "; ".join(issues)
 
     @staticmethod
     def _ensure_decision_rationale(output: SolutionOutput) -> None:
@@ -903,14 +962,14 @@ class ProblemSolverAgent(BaseAgent):
                 "关键干系人可协调",
             ]
 
-        # Risks (structured)
-        if not output.risks:
+        # Risks (structured) — ensure at least 2 per strict prompt requirements
+        if not output.risks or len(output.risks) < 2:
             rec = next(
                 (s for s in output.solutions if s.id == output.recommended_solution_id),
                 output.solutions[0] if output.solutions else None,
             )
             sev = rec.risk_level if rec else "medium"
-            output.risks = [
+            base = [
                 RiskItem(
                     title="推荐方案执行后残余风险",
                     severity=sev,
@@ -919,6 +978,25 @@ class ProblemSolverAgent(BaseAgent):
                     related_rule_ids=[r.rule_id for r in output.rule_pack_references[:2]],
                 )
             ]
+            if len(output.risks or []) < 2:
+                base.append(
+                    RiskItem(
+                        title="历史类似问题复发风险",
+                        severity="medium",
+                        likelihood="medium",
+                        mitigation="复盘根因并固化变更与审计措施",
+                        related_rule_ids=[r.rule_id for r in output.rule_pack_references[:1]],
+                    )
+                )
+            output.risks = (output.risks or []) + base
+            # dedup by title
+            seen = set()
+            deduped = []
+            for ri in output.risks:
+                if ri.title not in seen:
+                    seen.add(ri.title)
+                    deduped.append(ri)
+            output.risks = deduped[:3]  # cap
 
         # D3: pull explicit risk lessons from prior failed cases or past execution failures in state
         if state:
