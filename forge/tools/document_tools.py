@@ -486,4 +486,22 @@ def build_document_tools(state: ProjectState) -> list[BaseTool]:
             f"建议数: {len(compliance.get('recommendations', []))}"
         )
 
-    return [list_document_templates, preview_solution_for_documents, preview_compliance_for_documents]
+    @tool
+    def generate_project_documents() -> str:
+        """Generate the full Markdown document bundle from last_solution + compliance."""
+        solution = state.get("last_solution") or {}
+        compliance = state.get("last_compliance_result") or {}
+        bundle = generate_document_bundle(
+            project_id=state.get("project_id", "unknown"),
+            phase=state.get("current_phase", "execution"),
+            solution=solution,
+            compliance=compliance,
+        )
+        return bundle.model_dump_json()
+
+    return [
+        list_document_templates,
+        preview_solution_for_documents,
+        preview_compliance_for_documents,
+        generate_project_documents,
+    ]

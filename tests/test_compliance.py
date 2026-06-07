@@ -9,11 +9,14 @@ from forge.agents.compliance import ComplianceAgent
 from forge.agents.compliance_output import ComplianceOutput
 from forge.agents.solution_output import SolutionOption, SolutionOutput
 from forge.core import compile_workflow, create_initial_state
+from forge.core.tool_registry import get_tool_registry
 from forge.tools.compliance_tools import (
+    build_compliance_output_from_checks,
     build_compliance_tools,
     check_base_compliance,
     check_dengbao_compliance,
     check_itil_compliance,
+    normalize_check_item,
     run_all_compliance_checks,
 )
 
@@ -79,6 +82,49 @@ def test_compliance_agent_heuristic_output(base_state):
     assert sum(1 for i in items if i.rule_id or i.check_id.startswith(("db-", "itil-", "si-"))) >= len(
         items
     ) * 0.8
+
+
+def test_check_mode_lenient_more_permissive_than_strict(base_state):
+    """Lenient should not be stricter than strict on the same evidence."""
+    raw = run_all_compliance_checks(base_state)
+    strict = build_compliance_output_from_checks(raw, check_mode="strict")
+    lenient = build_compliance_output_from_checks(raw, check_mode="lenient")
+    severity = {"compliant": 0, "partial": 1, "non_compliant": 2}
+    assert severity[lenient["compliance_status"]] <= severity[strict["compliance_status"]]
+
+
+def test_check_mode_strict_vs_advisory_same_raw(base_state):
+    raw = run_all_compliance_checks(base_state)
+    advisory = build_compliance_output_from_checks(raw, check_mode="advisory")
+    strict = build_compliance_output_from_checks(raw, check_mode="strict")
+    assert advisory["check_mode"] == "advisory"
+    assert strict["check_mode"] == "strict"
+    if advisory["compliance_status"] == "partial":
+        assert strict["compliance_status"] == "non_compliant"
+
+
+def test_normalize_check_item_adds_rule_id_prefix():
+    item = normalize_check_item(
+        {
+            "check_id": "base_si-doc",
+            "title": "资料完整性",
+            "category": "base_si",
+            "status": "fail",
+            "detail": "缺少技术方案",
+            "rule_id": "si-doc-001",
+            "rule_reference": "si-doc-001",
+        }
+    )
+    assert item["rule_id"] == "si-doc-001"
+    assert "[rule_id=si-doc-001]" in item["detail"]
+
+
+def test_compliance_agent_uses_registry(base_state):
+    agent = ComplianceAgent()
+    registry = get_tool_registry()
+    assert {t.name for t in agent.get_tools(base_state)} == {
+        t.name for t in registry.get_tools("compliance", base_state)
+    }
 
 
 def test_compliance_check_mode_in_result(base_state):

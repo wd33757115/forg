@@ -89,6 +89,34 @@ BASE_SI_CHECKS: dict[str, dict[str, Any]] = {
 }
 
 
+def _is_canonical_rule_id(value: str) -> bool:
+    return bool(value) and value.startswith(("db-", "itil-", "si-"))
+
+
+def normalize_check_item(item: dict[str, Any]) -> dict[str, Any]:
+    """
+    Ensure each check item has canonical rule_id and explainable detail.
+
+    Called before assembling ComplianceOutput so rule_id mapping is auditable.
+    """
+    rid = (item.get("rule_id") or "").strip()
+    if not _is_canonical_rule_id(rid):
+        ref = (item.get("rule_reference") or "").split(",")[0].strip()
+        if _is_canonical_rule_id(ref):
+            rid = ref
+        elif _is_canonical_rule_id(item.get("check_id", "")):
+            rid = item["check_id"]
+        else:
+            rid = _primary_rule_id(rule_ids=[], check_id=item.get("check_id", ""))
+    item["rule_id"] = rid
+    if not item.get("rule_reference") and rid:
+        item["rule_reference"] = rid
+    detail = (item.get("detail") or "").strip()
+    if rid and item.get("status") in ("fail", "warning") and "[rule_id=" not in detail:
+        item["detail"] = f"[rule_id={rid}] {detail}".strip()
+    return item
+
+
 def _primary_rule_id(*, rule_ids: list[str], check_id: str) -> str:
     """Pick canonical rule_id for a compliance check item."""
     if rule_ids:
@@ -385,16 +413,20 @@ def build_compliance_output_from_checks(
     from forge.utils.check_mode import compute_compliance_verdict
 
     module_results = list(raw.get("modules", {}).values())
+    for mod in module_results:
+        mod["items"] = [normalize_check_item(dict(item)) for item in mod.get("items", [])]
+
     missing: list[str] = []
     recommendations: list[str] = []
 
     for mod in module_results:
         for item in mod.get("items", []):
             if item["status"] in ("fail", "warning"):
-                missing.append(f"[{mod['module']}] {item['title']}: {item['detail']}")
+                rid = item.get("rule_id") or item.get("check_id", "")
+                missing.append(f"[{mod['module']}|{rid}] {item['title']}: {item['detail']}")
                 if item["status"] == "fail":
                     recommendations.append(
-                        f"整改 {item['title']} — 参考 {item.get('rule_reference', 'Rule Pack')}"
+                        f"整改 {item['title']} — rule_id={rid}，参考 {item.get('rule_reference', 'Rule Pack')}"
                     )
 
     fail_total = sum(
@@ -437,6 +469,7 @@ def build_compliance_output_from_checks(
         "overall_status": overall_status,
         "risk_level": risk_level,
         "compliance_status": compliance_status,
+        "check_mode": mode,
         "protection_level": raw.get("protection_level"),
         "results": module_results,
         "missing_items": missing,

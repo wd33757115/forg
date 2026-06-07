@@ -48,7 +48,12 @@ def test_default_registry_tool_names():
     ps_tools = {t.name for t in registry.get_tools("problem_solver", state)}
     assert "query_rule_pack" in ps_tools
     doc_tools = {t.name for t in registry.get_tools("document", state)}
-    assert "list_document_templates" in doc_tools
+    assert doc_tools == {
+        "list_document_templates",
+        "preview_solution_for_documents",
+        "preview_compliance_for_documents",
+        "generate_project_documents",
+    }
     sec_tools = registry.get_tools("security", state)
     assert sec_tools
 

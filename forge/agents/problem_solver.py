@@ -13,7 +13,7 @@ from forge.agents.problem_classifier import (
     classify_problem,
     modules_for_problem_type,
 )
-from forge.agents.rule_pack_refs import fetch_relevant_rules
+from forge.agents.rule_pack_refs import fetch_relevant_rules, merge_rule_pack_references
 from forge.agents.solution_output import RulePackReference, SolutionOption, SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
 from forge.prompts.problem_solver_prompt import (
@@ -26,6 +26,7 @@ from forge.utils.agent_context import build_handoff
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.knowledge import format_knowledge_context, search_knowledge
 from forge.utils.llm import escape_braces_for_format
+from forge.utils.rule_pack_extract import extract_rule_ids_from_text
 
 
 class ProblemSolverAgent(BaseAgent):
@@ -63,7 +64,8 @@ class ProblemSolverAgent(BaseAgent):
         problem_type: ProblemType,
         type_reason: str,
     ) -> str:
-        """Run ReAct via BaseAgent helper + ToolRegistry tools."""
+        """Run ReAct via BaseAgent helper + ToolRegistry tools (self.get_tools)."""
+        _ = self.get_tools(state)  # resolve via ToolRegistry; run_react uses same path
         priority_modules = ", ".join(modules_for_problem_type(problem_type))
         fallback = run_tool_research(
             state, problem_statement, problem_type=problem_type
@@ -117,10 +119,37 @@ class ProblemSolverAgent(BaseAgent):
                 result,
                 problem_statement=problem_statement,
                 problem_type=problem_type,
+                research_context=research_context,
             )
 
-        return self._build_heuristic_solution(
+        heuristic = self._build_heuristic_solution(
             state, problem_statement, research_context, problem_type, type_reason
+        )
+        return self._validate_solution_output(
+            heuristic,
+            problem_statement=problem_statement,
+            problem_type=problem_type,
+            research_context=research_context,
+        )
+
+    @staticmethod
+    def _structured_analysis(
+        *,
+        problem_type: ProblemType,
+        type_reason: str,
+        phenomenon: str,
+        impact: str,
+        dengbao: str,
+        itil: str,
+    ) -> str:
+        """Four-part analysis template (phenomenon / impact / dengbao / ITIL) for explainability."""
+        label = PROBLEM_TYPE_LABELS.get(problem_type, problem_type)
+        return (
+            f"【{label}】{type_reason}\n"
+            f"现象：{phenomenon}\n"
+            f"业务影响：{impact}\n"
+            f"等保维度：{dengbao}\n"
+            f"ITIL维度：{itil}"
         )
 
     def _build_heuristic_solution(
@@ -132,7 +161,7 @@ class ProblemSolverAgent(BaseAgent):
         type_reason: str,
     ) -> SolutionOutput:
         """Build a valid SolutionOutput without LLM (tests + offline mode)."""
-        rule_refs = fetch_relevant_rules(problem_type, problem_statement)
+        rule_refs = fetch_relevant_rules(problem_type, problem_statement, minimum=3)
         problem_lower = problem_statement.lower()
 
         is_auth = any(k in problem_lower for k in ("401", "403", "登录", "认证", "auth"))
@@ -140,9 +169,13 @@ class ProblemSolverAgent(BaseAgent):
         is_itil_evt = any(k in problem_lower for k in ("事件", "中断", "宕机", "itil", "sla"))
 
         if problem_type == "security" or is_auth:
-            analysis = (
-                f"【{PROBLEM_TYPE_LABELS.get(problem_type, problem_type)}】"
-                "认证/授权或等保控制项相关故障，需对照身份鉴别与访问控制条款整改。"
+            analysis = self._structured_analysis(
+                problem_type=problem_type,
+                type_reason=type_reason,
+                phenomenon="认证/授权链路异常（如 401/403）",
+                impact="用户无法登录或越权风险上升，影响业务可用性与审计证据完整性",
+                dengbao="对照 db-acs-001 身份鉴别、db-aud-001 安全审计核查控制项",
+                itil="按 itil-inc-001 记录事件，必要时 itil-chg-001 走变更修复",
             )
             root_causes = [
                 "SSO/LDAP 证书过期或配置漂移（关联 db-acs-001）",
@@ -177,9 +210,13 @@ class ProblemSolverAgent(BaseAgent):
             dengbao = [f"核查 {r.rule_id} {r.title}" for r in rule_refs if r.module == "dengbao_2.0"][:4]
             itil = [f"执行 {r.rule_id} 相关要求" for r in rule_refs if r.module == "itil_iso20000"][:3]
         elif problem_type == "service_management" or is_itil_evt:
-            analysis = (
-                f"【{PROBLEM_TYPE_LABELS.get(problem_type, problem_type)}】"
-                "ITIL 服务管理场景：需按事件管理流程恢复服务并评估 SLA 影响。"
+            analysis = self._structured_analysis(
+                problem_type=problem_type,
+                type_reason=type_reason,
+                phenomenon="服务中断或 SLA 指标恶化",
+                impact="业务可用性下降，可能触发违约与升级流程",
+                dengbao="确保处置过程保留审计日志（db-aud-001）",
+                itil="按 itil-inc-001 分级响应，itil-prb-001 跟踪根因",
             )
             root_causes = ["核心组件故障导致服务中断", "变更窗口内未验证回退方案", "CMDB 配置项与实际不一致"]
             solutions = [
@@ -210,7 +247,14 @@ class ProblemSolverAgent(BaseAgent):
             dengbao = ["确认事件处置不破坏等保审计连续性"]
             itil = [f"对齐 {r.rule_id}: {r.title}" for r in rule_refs if r.module == "itil_iso20000"][:4]
         elif is_perf or problem_type == "technical":
-            analysis = f"【技术类】性能或集成链路问题：{type_reason}"
+            analysis = self._structured_analysis(
+                problem_type="technical",
+                type_reason=type_reason,
+                phenomenon="性能劣化或集成链路超时",
+                impact="接口响应变慢，可能导致上游业务超时与用户体验下降",
+                dengbao="变更与日志留存满足 db-aud-001 / si-int-001",
+                itil="itil-inc-001 事件记录 + itil-slm-001 SLA 影响评估",
+            )
             root_causes = ["数据库连接池耗尽", "跨系统调用超时", "近期变更引入性能回归"]
             solutions = [
                 SolutionOption(
@@ -240,7 +284,14 @@ class ProblemSolverAgent(BaseAgent):
             dengbao = ["确保安全审计持续可用"]
             itil = ["对照 SLA 评估服务影响"]
         else:
-            analysis = f"【混合场景】{problem_statement[:200]} — {type_reason}"
+            analysis = self._structured_analysis(
+                problem_type="mixed",
+                type_reason=type_reason,
+                phenomenon=problem_statement[:120],
+                impact="安全控制与服务可用性交叉受影响，需联合诊断",
+                dengbao="并行核查 dengbao_2.0 控制项（db-acs-001 等）",
+                itil="并行执行 itil-inc-001 事件流程与变更协同",
+            )
             root_causes = ["安全控制与服务可用性交叉影响", "需联合安全与运维团队诊断"]
             solutions = [
                 SolutionOption(
@@ -292,12 +343,34 @@ class ProblemSolverAgent(BaseAgent):
             itil_considerations=itil or ["按事件管理流程记录"],
         )
 
+    def _enrich_rule_pack_references(
+        self,
+        output: SolutionOutput,
+        *,
+        problem_statement: str,
+        problem_type: ProblemType,
+        research_context: str = "",
+    ) -> None:
+        """Merge research-extracted rule_ids and keyword-based defaults (in-place)."""
+        extracted = extract_rule_ids_from_text(research_context)
+        base = fetch_relevant_rules(problem_type, problem_statement, minimum=3)
+        output.rule_pack_references = merge_rule_pack_references(
+            output.rule_pack_references or base,
+            extracted,
+            limit=8,
+        )
+        if len(output.rule_pack_references) < 3:
+            output.rule_pack_references = fetch_relevant_rules(
+                problem_type, problem_statement, limit=6, minimum=3
+            )
+
     def _validate_solution_output(
         self,
         output: SolutionOutput,
         *,
         problem_statement: str = "",
         problem_type: ProblemType | None = None,
+        research_context: str = "",
     ) -> SolutionOutput:
         """Ensure recommended_solution_id references an existing solution."""
         valid_ids = {s.id for s in output.solutions}
@@ -317,13 +390,14 @@ class ProblemSolverAgent(BaseAgent):
                     risk_level="low",
                 )
             )
-        if not output.rule_pack_references:
-            ptype = problem_type or output.problem_type
-            if ptype:
-                output.rule_pack_references = fetch_relevant_rules(
-                    ptype,
-                    problem_statement or output.problem_analysis,
-                )
+        ptype = problem_type or output.problem_type
+        if ptype:
+            self._enrich_rule_pack_references(
+                output,
+                problem_statement=problem_statement or output.problem_analysis,
+                problem_type=ptype,
+                research_context=research_context,
+            )
         return output
 
     def _format_response(self, solution: SolutionOutput) -> str:

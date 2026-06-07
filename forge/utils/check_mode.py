@@ -1,6 +1,17 @@
-"""Compliance check_mode resolution and verdict logic (v1.0)."""
+"""Compliance check_mode resolution and verdict logic.
+
+Three modes (IMPLEMENTATION_PLAN §4.5):
+  strict   — any fail OR warning → non_compliant
+  advisory — manageable gaps → partial; high/critical volume → non_compliant
+  lenient  — only high-risk / many gaps block; few gaps → partial
+
+Heuristic checks use ``compute_compliance_verdict`` / ``finalize_compliance_status``.
+LLM outputs are normalized in ComplianceAgent._normalize_output.
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 from forge.config import get_settings
 from forge.core.state import ComplianceCheckMode, DEFAULT_CHECK_MODE, ProjectState
@@ -68,6 +79,36 @@ def compute_compliance_verdict(
     if warn_total > 0:
         return "gaps_found", "low", "partial"
     return "pass", "low", "compliant"
+
+
+def counts_from_check_items(
+    items: list[dict[str, Any]],
+) -> tuple[int, int, int]:
+    """Return (fail_total, warn_total, critical_fails) from raw check item dicts."""
+    fail_total = sum(1 for i in items if i.get("status") == "fail")
+    warn_total = sum(1 for i in items if i.get("status") == "warning")
+    critical_fails = sum(
+        1
+        for i in items
+        if i.get("status") == "fail" and "dengbao" in i.get("category", "")
+    )
+    return fail_total, warn_total, critical_fails
+
+
+def finalize_compliance_status(
+    *,
+    fail_total: int,
+    warn_total: int,
+    critical_fails: int,
+    check_mode: ComplianceCheckMode,
+) -> tuple[str, str, str]:
+    """Single entry for overall_status, risk_level, compliance_status (compliant|partial|non_compliant)."""
+    return compute_compliance_verdict(
+        fail_total=fail_total,
+        warn_total=warn_total,
+        critical_fails=critical_fails,
+        check_mode=check_mode,
+    )
 
 
 def apply_check_mode_to_compliance_status(

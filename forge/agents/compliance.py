@@ -22,11 +22,12 @@ from forge.prompts.compliance_prompt import (
 )
 from forge.tools.compliance_tools import (
     build_compliance_output_from_checks,
+    normalize_check_item,
     run_all_compliance_checks,
     run_compliance_research,
 )
 from forge.utils.agent_context import get_handoff_payload
-from forge.utils.check_mode import apply_check_mode_to_compliance_status, resolve_check_mode
+from forge.utils.check_mode import finalize_compliance_status, resolve_check_mode
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.llm import escape_braces_for_format
 
@@ -57,13 +58,15 @@ class ComplianceAgent(BaseAgent):
         return str(rule_pack.get("protection_level", "3"))
 
     def _run_react(self, state: ProjectState, context: str) -> str:
-        """Run ReAct via BaseAgent + ToolRegistry compliance tools."""
+        """Run ReAct via BaseAgent + ToolRegistry compliance tools (self.get_tools)."""
+        _ = self.get_tools(state)
         task = COMPLIANCE_REACT_TASK.format(
             context=context,
             project_id=state.get("project_id", ""),
             current_phase=state.get("current_phase", ""),
             enabled_modules=", ".join(state.get("enabled_modules", [])),
             protection_level=self._get_protection_level(state),
+            check_mode=resolve_check_mode(state),
         )
         return self.run_react(
             state,
@@ -129,8 +132,54 @@ class ComplianceAgent(BaseAgent):
             temperature=0.05,
         )
         if isinstance(result, ComplianceOutput):
-            return result
+            return self._normalize_output(result, state)
         return self._build_heuristic_output(state, context)
+
+    def _normalize_output(self, output: ComplianceOutput, state: ProjectState) -> ComplianceOutput:
+        """Ensure rule_id on items and apply check_mode to derived compliance status."""
+        check_mode = resolve_check_mode(state)
+        normalized_results: list[ModuleComplianceResult] = []
+        all_items: list[dict] = []
+
+        for mod in output.results:
+            items = []
+            for item in mod.items:
+                raw = normalize_check_item(item.model_dump())
+                all_items.append(raw)
+                items.append(CheckItem(**raw))
+            normalized_results.append(
+                ModuleComplianceResult(
+                    module=mod.module,
+                    module_name=mod.module_name,
+                    status=mod.status,
+                    score=mod.score,
+                    items=items,
+                    summary=mod.summary,
+                )
+            )
+
+        fail_total = sum(1 for i in all_items if i.get("status") == "fail")
+        warn_total = sum(1 for i in all_items if i.get("status") == "warning")
+        critical_fails = sum(
+            1
+            for i in all_items
+            if i.get("status") == "fail" and "dengbao" in i.get("category", "")
+        )
+        overall, risk, _ = finalize_compliance_status(
+            fail_total=fail_total,
+            warn_total=warn_total,
+            critical_fails=critical_fails,
+            check_mode=check_mode,
+        )
+        return ComplianceOutput(
+            overall_status=overall,
+            risk_level=risk,
+            protection_level=output.protection_level or self._get_protection_level(state),
+            results=normalized_results,
+            missing_items=output.missing_items or [],
+            recommendations=output.recommendations,
+            next_action=output.next_action,
+        )
 
     def _format_response(self, output: ComplianceOutput) -> str:
         lines = [
@@ -147,7 +196,8 @@ class ComplianceAgent(BaseAgent):
             lines.append(mod.summary)
             for item in mod.items:
                 icon = {"pass": "✓", "fail": "✗", "warning": "!"}.get(item.status, "?")
-                lines.append(f"  {icon} [{item.check_id}] {item.title}: {item.detail}")
+                rid = item.rule_id or item.check_id
+                lines.append(f"  {icon} rule_id={rid} | {item.title}: {item.detail}")
             lines.append("")
 
         if output.missing_items:
@@ -190,7 +240,20 @@ class ComplianceAgent(BaseAgent):
         }
         check_mode = resolve_check_mode(state)
         base_status = self._derive_compliance_status(output)
-        compliance_status = apply_check_mode_to_compliance_status(base_status, check_mode)
+        all_items = [item.model_dump() for mod in output.results for item in mod.items]
+        fail_total = sum(1 for i in all_items if i.get("status") == "fail")
+        warn_total = sum(1 for i in all_items if i.get("status") == "warning")
+        critical_fails = sum(
+            1
+            for i in all_items
+            if i.get("status") == "fail" and "dengbao" in i.get("category", "")
+        )
+        _, _, compliance_status = finalize_compliance_status(
+            fail_total=fail_total,
+            warn_total=warn_total,
+            critical_fails=critical_fails,
+            check_mode=check_mode,
+        )
         structured = {
             **output.model_dump(),
             "id": legacy.id,

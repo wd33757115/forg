@@ -41,6 +41,7 @@ class PMAdvisorAgent(BaseAgent):
         return "项目执行结果汇总"
 
     def _run_react(self, state: ProjectState, user_question: str) -> str:
+        _ = self.get_tools(state)
         task = PM_ADVISOR_REACT_TASK.format(
             project_id=state.get("project_id", ""),
             current_phase=state.get("current_phase", ""),

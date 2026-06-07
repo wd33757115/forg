@@ -8,7 +8,6 @@ from forge.core.base_agent import BaseAgent
 from forge.agents.document_output import DocumentOutput
 from forge.core.state import ProjectState
 from forge.prompts.document_prompt import DOCUMENT_SYSTEM
-from forge.tools.document_tools import generate_document_bundle
 from forge.utils.conversation import record_conversation
 from forge.utils.llm import invoke_llm
 from forge.utils.logger import get_logger
@@ -37,16 +36,16 @@ class DocumentAgent(BaseAgent):
         solution: dict[str, Any] | None = None,
         compliance: dict[str, Any] | None = None,
     ) -> DocumentOutput:
-        """Core generation logic — uses solution/compliance from state or args."""
+        """Core generation via ToolRegistry ``generate_project_documents`` tool."""
         solution = solution or state.get("last_solution") or {}
         compliance = compliance or state.get("last_compliance_result") or {}
 
-        bundle = generate_document_bundle(
-            project_id=state.get("project_id", "unknown"),
-            phase=state.get("current_phase", "execution"),
-            solution=solution,
-            compliance=compliance,
-        )
+        tools = {t.name: t for t in self.get_tools(state)}
+        gen_tool = tools.get("generate_project_documents")
+        if gen_tool is None:
+            raise RuntimeError("DocumentAgent: generate_project_documents not registered in ToolRegistry")
+
+        bundle = DocumentOutput.model_validate_json(gen_tool.invoke({}))
 
         # Optional LLM enrichment of summary
         llm_summary = invoke_llm(

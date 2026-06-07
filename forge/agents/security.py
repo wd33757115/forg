@@ -53,6 +53,7 @@ class SecurityAgent(BaseAgent):
         return str(rule_pack.get("protection_level", "3"))
 
     def _run_react(self, state: ProjectState, context: str) -> str:
+        _ = self.get_tools(state)
         task = SECURITY_REACT_TASK.format(
             context=context[:2000],
             project_id=state.get("project_id", ""),
