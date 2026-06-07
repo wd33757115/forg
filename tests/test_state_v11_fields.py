@@ -11,3 +11,7 @@ def test_initial_state_has_confidence_and_risk():
     assert "risk_level" in state
     assert state["confidence_score"] is None
     assert state["risk_level"] is None
+    assert state["execution_tasks"] == []
+    assert state["approval_requests"] == []
+    assert state["pending_approvals"] == []
+    assert state["auto_approve"] is False

@@ -64,6 +64,21 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="使用 ANSI 纯文本输出（默认 Rich Demo 故事板）",
     )
     parser.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="自动批准待审执行任务（演示半自治流程）",
+    )
+    parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="恢复状态时批准 pending 审批请求",
+    )
+    parser.add_argument(
+        "--reject",
+        action="store_true",
+        help="恢复状态时拒绝 pending 审批请求",
+    )
+    parser.add_argument(
         "--demo-seed",
         action="store_true",
         help="为空白项目预置演示用文档/WBS（提升合规 partial 与资料生成稳定性）",

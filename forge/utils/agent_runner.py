@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import traceback
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -65,20 +66,27 @@ def wrap_agent_node(
     def node(state: ProjectState) -> dict[str, Any]:
         run_id = state.get("run_id", "?")
         logger.info("[%s] ▶ agent=%s start", run_id, agent_name)
+        t0 = time.perf_counter()
+        check_mode = state.get("check_mode")
+        retry_generation = int(state.get("compliance_retry_count") or 0)
 
         start_entry = {
             "agent": agent_name,
             "status": "running",
             "timestamp": _utc_now(),
             "run_id": run_id,
+            "check_mode": check_mode,
+            "retry_generation": retry_generation,
         }
 
         try:
             updates = agent_fn(state)
+            duration_ms = round((time.perf_counter() - t0) * 1000, 1)
             success_entry = {
                 **start_entry,
                 "status": "success",
                 "finished_at": _utc_now(),
+                "duration_ms": duration_ms,
             }
             logger.info("[%s] ✓ agent=%s success", run_id, agent_name)
 
@@ -98,11 +106,13 @@ def wrap_agent_node(
                 "timestamp": _utc_now(),
                 "traceback": tb[-2000:],
             }
+            duration_ms = round((time.perf_counter() - t0) * 1000, 1)
             fail_entry = {
                 **start_entry,
                 "status": "failed",
                 "error": str(exc),
                 "finished_at": _utc_now(),
+                "duration_ms": duration_ms,
             }
 
             recovery: dict[str, Any] = {

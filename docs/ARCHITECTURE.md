@@ -328,10 +328,19 @@ docs/
 
 - [x] CLI 场景：`cli/scenarios.py` + `make demo-mixed`
 - [x] `cli/parser.py` + `cli/scenarios.py` + `runner`/`resolvers`/`result_print`；`main.py` ~255 行
+- [x] **Rich Demo 故事板**（`cli/demo_display.py`）：思考链路、合规重试、Handoff、统计
 - [x] README 与本文档对齐
 - [x] 集成测试：无 LLM 全闭环 + `@pytest.mark.llm` 引用率 job
 
 **v1.0 完成标志**：M1 + M2 + M3 全部勾选，且 §A.1 验收表 6 条满足。✅ **已达成（2026-06-06）**
+
+### M4 — v1.1 半自治（2026-06-06）
+
+- [x] `AgentRegistry` — `core/agent_registry.py`
+- [x] `ConfidenceScorer` — `core/confidence/`
+- [x] Execution Layer — `core/execution/`（任务草稿，不对接真实系统）
+- [x] ApprovalFlow — `core/approval/` + CLI `--auto-approve` / `--approve` / `--reject`
+- [x] 知识沉淀 — `utils/knowledge_extract.py`；`kb` CLI；`core/memory/graph.py` stub
 
 ---
 

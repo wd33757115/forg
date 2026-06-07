@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
 
+from forge.core.agent_registry import get_agent_registry
 from forge.core.state import ProjectState
 from forge.core.supervisor import (
     AgentName,
     Supervisor,
-    finalize_node,
     route_after_compliance,
     route_after_operations,
     route_after_problem_solver,
@@ -16,56 +16,36 @@ from forge.core.supervisor import (
     route_after_supervisor,
     supervisor_post_compliance_node,
 )
-from forge.utils.agent_runner import wrap_agent_node
 
 
 def build_workflow() -> StateGraph:
     """
-    Construct the Forge StateGraph.
+    Construct the Forge StateGraph via AgentRegistry.
 
-    Standard problem-solving pipeline (Supervisor planned):
+    Standard pipeline:
         ProblemSolver → (Security|Operations)* → Compliance
-            → (retry ≤2) → Document → PMAdvisor → Finalize
-
-    All agent nodes are wrapped with ``wrap_agent_node`` for tracing and error recovery.
+            → (retry ≤2) → Document → PMAdvisor
+            → Execution → ApprovalGate → Finalize
     """
-    from forge.agents.compliance import compliance_node
-    from forge.agents.document import document_node
-    from forge.agents.operations import operations_node
-    from forge.agents.pm_advisor import pm_advisor_node
-    from forge.agents.problem_solver import problem_solver_node
-    from forge.agents.security import security_node
-
+    registry = get_agent_registry()
     supervisor = Supervisor()
     graph = StateGraph(ProjectState)
 
     graph.add_node(AgentName.SUPERVISOR, supervisor)
     graph.add_node("supervisor_post_compliance", supervisor_post_compliance_node)
-    graph.add_node(
+
+    for name in (
         AgentName.PROBLEM_SOLVER,
-        wrap_agent_node(problem_solver_node, AgentName.PROBLEM_SOLVER, optional=False),
-    )
-    graph.add_node(
         AgentName.COMPLIANCE,
-        wrap_agent_node(compliance_node, AgentName.COMPLIANCE, optional=False),
-    )
-    graph.add_node(
         AgentName.SECURITY,
-        wrap_agent_node(security_node, AgentName.SECURITY, optional=True),
-    )
-    graph.add_node(
         AgentName.OPERATIONS,
-        wrap_agent_node(operations_node, AgentName.OPERATIONS, optional=True),
-    )
-    graph.add_node(
         AgentName.DOCUMENT,
-        wrap_agent_node(document_node, AgentName.DOCUMENT, optional=True),
-    )
-    graph.add_node(
         AgentName.PM_ADVISOR,
-        wrap_agent_node(pm_advisor_node, AgentName.PM_ADVISOR, optional=True),
-    )
-    graph.add_node(AgentName.FINALIZE, finalize_node)
+        AgentName.EXECUTION,
+        AgentName.APPROVAL_GATE,
+        AgentName.FINALIZE,
+    ):
+        graph.add_node(name, registry.get_node(name.value))
 
     graph.set_entry_point(AgentName.SUPERVISOR)
 
@@ -138,7 +118,9 @@ def build_workflow() -> StateGraph:
     )
 
     graph.add_edge(AgentName.DOCUMENT, AgentName.PM_ADVISOR)
-    graph.add_edge(AgentName.PM_ADVISOR, AgentName.FINALIZE)
+    graph.add_edge(AgentName.PM_ADVISOR, AgentName.EXECUTION)
+    graph.add_edge(AgentName.EXECUTION, AgentName.APPROVAL_GATE)
+    graph.add_edge(AgentName.APPROVAL_GATE, AgentName.FINALIZE)
     graph.add_edge(AgentName.FINALIZE, END)
 
     return graph

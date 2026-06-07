@@ -55,8 +55,14 @@ def _configure_stdio() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    if raw_argv and raw_argv[0] == "kb":
+        from forge.cli.kb import kb_main
+
+        return kb_main(raw_argv[1:])
+
     parser = build_cli_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     _configure_stdio()
     load_dotenv()
@@ -147,6 +153,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     display.info("运行中… Supervisor 编排 → 多 Agent 协作流水线\n")
 
+    if args.approve and args.reject:
+        print(red("错误: --approve 与 --reject 不能同时使用"))
+        return 1
+    force_approval = "approve" if args.approve else ("reject" if args.reject else None)
+
     started = time.perf_counter()
     problem_hint = type_hint or (args.scenario if args.scenario in ("security", "itil", "mixed", "general") else None)
     use_demo_seed = args.demo_seed or (
@@ -164,6 +175,8 @@ def main(argv: list[str] | None = None) -> int:
                 problem_type_hint=problem_hint,
                 check_mode=args.check_mode,
                 demo_seed=use_demo_seed,
+                auto_approve=args.auto_approve,
+                force_approval=force_approval,
                 initial_state=loaded_state,
             )
         else:
@@ -174,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
                 problem_type_hint=problem_hint,
                 check_mode=args.check_mode,
                 demo_seed=use_demo_seed,
+                auto_approve=args.auto_approve,
+                force_approval=force_approval,
             )
         result["_elapsed_ms"] = (time.perf_counter() - started) * 1000
     except KeyboardInterrupt:

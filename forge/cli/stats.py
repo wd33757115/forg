@@ -6,32 +6,12 @@ from typing import Any
 
 
 def compute_confidence_score(result: dict[str, Any]) -> float:
-    """
-    Heuristic confidence 0.0–1.0 from compliance outcome, retries, and Rule Pack refs.
+    """Delegate to ConfidenceScorer (v1.1)."""
+    from forge.core.confidence import ConfidenceScorer
 
-    Used for v1.1 ProjectState.confidence_score (set at finalize).
-    """
-    score = 0.65
-    compliance = result.get("last_compliance_result") or {}
-    status = compliance.get("compliance_status", compliance.get("overall_status", ""))
-    if status == "compliant":
-        score += 0.2
-    elif status == "partial":
-        score += 0.08
-    elif status == "non_compliant":
-        score -= 0.1
-
-    retries = int(result.get("compliance_retry_count") or 0)
-    score -= min(0.25, retries * 0.12)
-
-    solution = result.get("last_solution") or {}
-    refs = len(solution.get("rule_pack_references") or [])
-    score += min(0.12, refs * 0.03)
-
-    errors = len(result.get("agent_errors") or [])
-    score -= min(0.2, errors * 0.08)
-
-    return round(max(0.0, min(1.0, score)), 2)
+    if result.get("confidence_score") is not None:
+        return float(result["confidence_score"])
+    return ConfidenceScorer.score_from_state(result)
 
 
 def compute_run_stats(result: dict[str, Any], *, elapsed_ms: float | None = None) -> dict[str, Any]:

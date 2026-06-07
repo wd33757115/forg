@@ -254,6 +254,10 @@ class ComplianceAgent(BaseAgent):
             critical_fails=critical_fails,
             check_mode=check_mode,
         )
+        rule_mapped = sum(
+            1 for i in all_items if i.get("rule_id") or i.get("check_id")
+        )
+        evidence_coverage = rule_mapped / max(1, len(all_items))
         structured = {
             **output.model_dump(),
             "id": legacy.id,
@@ -261,6 +265,7 @@ class ComplianceAgent(BaseAgent):
             "compliance_status": compliance_status,
             "check_mode": check_mode,
             "base_compliance_status": base_status,
+            "evidence_coverage": round(evidence_coverage, 3),
         }
         return record, structured
 

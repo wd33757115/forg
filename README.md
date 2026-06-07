@@ -73,6 +73,38 @@ copy .env.example .env
 
 运行结束后（交互式终端）会提示 **1-5 分满意度**，写入 `knowledge_base` 供后续 Agent 参考。
 
+## Demo 故事板（Rich，默认）
+
+默认使用 Rich 分段展示完整流水线（`--plain` 回退 ANSI）：
+
+| 区块 | 内容 |
+|------|------|
+| ① 用户问题 | 原始提问 |
+| ② ProblemSolver | 方案、Rule Pack 引用、根因 |
+| ③ Compliance | 状态/风险/缺口 + **合规重试时间线** |
+| ④ Document | 生成资料列表 |
+| ⑤ PM 顾问 | 行动项摘要 |
+| 置信度分解 | 合规/证据/历史因子 → `auto_execute` / `needs_review` / `block` |
+| ⑥ 执行任务 | 整改 WBS / 变更申请草稿（v1.1） |
+| 审批流程 | 待审批项；`--auto-approve` 或恢复后 `--approve`/`--reject` |
+| 运行统计 | 耗时、Agent 调用、Handoff、置信度 |
+
+```powershell
+.\run.bat --type security --no-feedback              # Rich Demo
+.\run.bat --type security --plain --no-feedback      # ANSI 旧输出
+.\run.bat --type security --auto-approve --no-feedback   # 半自治：自动审批执行
+.\run.bat --load .forge_state/cli-demo.json --approve "继续"  # 批准待审任务
+```
+
+归档样例报告见 [`reports/`](reports/) 目录。
+
+## 知识库 CLI
+
+```powershell
+.\run.bat kb search --tag security
+.\run.bat kb search --tag security --load-state .forge_state/cli-demo.json
+```
+
 ## Makefile（Git Bash / WSL）
 
 ```bash
@@ -101,7 +133,11 @@ FORGE_LLM_MAX_RETRIES=3
 ```
 Supervisor
   └── PipelineOrchestrator   # 问题分类 + 专家队列编排
-        └── ProblemSolver → (Security|Operations)* → Compliance → Document → PMAdvisor
+        └── ProblemSolver → (Security|Operations)* → Compliance
+              → Document → PMAdvisor → Execution → ApprovalGate → Finalize
+
+AgentRegistry (core/agent_registry.py)   # 节点注册与 workflow 组装
+ConfidenceScorer (core/confidence/)      # v1.1 置信度 → 审批门控
 
 BaseAgent (core/base_agent.py)
   ├── run(state)             # 统一入口

@@ -1,8 +1,8 @@
 # Forge v1.0 实施计划
 
-> 版本：2026-06-06 | 对齐文档：[`ARCHITECTURE.md`](ARCHITECTURE.md) rev3  
-> 范围：从当前代码基线（v0.1）交付 **v1.0 可演示、可测试、可扩展** 的闭环产品  
-> 原则：**先闭环质量，后优雅抽象**；v1.0 不做 AgentRegistry、Skill、memory 包、Web 增强
+> 版本：2.0 | 2026-06-06 | 对齐文档：[`ARCHITECTURE.md`](ARCHITECTURE.md) rev4  
+> 范围：v1.0 已签收；当前推进 **阶段 1 收尾 → 阶段 2 → 阶段 3.1 ConfidenceScorer（v1.1）**  
+> 原则：**先闭环质量，后优雅抽象**；v1.1 引入 ConfidenceScorer / Execution / Approval，AgentRegistry 在阶段 2
 
 ---
 
@@ -470,4 +470,322 @@ flowchart TD
 | Prompt 正文迁入 `prompts/<agent>/prompts.py` | ✅ |
 | Web `check_mode` / `problem_type_hint` / `demo_seed` | ✅ |
 | ARCHITECTURE rev4 进度同步 | ✅ |
-| Docker / Web SSE / AgentRegistry | 🔲 见 ARCHITECTURE §B |
+| Rich CLI Demo（`cli/demo_display.py`）+ `--plain` | ✅ |
+| `confidence_score` / `risk_level` 字段 + finalize 写入 | ✅ |
+| `knowledge_helpers` + handoff 记录 | ✅ |
+| Docker / Web SSE / AgentRegistry | 🔲 见 §14–§17 |
+
+---
+
+## 14. 四阶段路线图总览（2026-06 起）
+
+> 在 v1.0（Batch 3/3.5/4）签收基础上，按 **闭环稳定 → 架构收口 → 半自治 → 知识记忆** 推进。  
+> **当前焦点**：阶段 1 签收收尾 → 阶段 2 启动 → **阶段 3.1 ConfidenceScorer**（v1.1 入口）。
+
+```
+阶段 1 核心闭环稳定 + Demo     ███████████  100%  已签收
+阶段 2 架构收口与一致性         ███████████  100%  AgentRegistry + 追踪
+阶段 3 半自治执行（v1.1）       ███████████  100%  Confidence + Execution + Approval
+阶段 4 知识与记忆（长期）       ██████████░  ~90%  图谱 stub；语义检索留 §B
+```
+
+| 阶段 | 建议工期 | 建议启动 | 完成标志 |
+|------|----------|----------|----------|
+| **阶段 1** | 2–3 周 | ✅ 已基本完成 | Demo 三场景可演示；三种 check_mode；Registry 6/6 |
+| **阶段 2** | 1–2 周 | 阶段 1 签收后立刻 | 新 Agent 有固定 checklist；Supervisor 少硬编码 |
+| **阶段 3** | 2–3 周 | 阶段 2 核心完成后 | Demo 模拟「生成任务 → 置信度 → 审批 → 执行」 |
+| **阶段 4** | 持续 | 可与阶段 3 并行 | 项目级记忆可检索、可沉淀、可演进 |
+
+**验证命令（每阶段结束）**：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/ -q -k "not test_run_forge_cli_helper" -m "not llm"
+.\run.bat --type security --no-feedback
+.\run.bat --type operations --no-feedback
+.\run.bat --type mixed --no-feedback
+```
+
+---
+
+## 15. 阶段 1 — 核心闭环稳定 + Demo 可演示
+
+**目标**：系统集成场景下核心流程跑得稳、看得清、能演示。
+
+### 15.1 任务状态板
+
+| 编号 | 任务 | 状态 | 代码锚点 | 剩余工作 |
+|------|------|------|----------|----------|
+| **1.1** | ProblemSolver 能力提升 | ✅ | `agents/problem_solver.py`、`rule_pack_refs.py`、`prompts/problem_solver/` | 可选：LLM 场景回归；混合场景 prompt 微调 |
+| **1.2** | Compliance 能力提升 | ✅ | `utils/check_mode.py`、`agents/compliance.py`、`tools/compliance_tools.py` | 可选：strict 下重试策略文档化 |
+| **1.3** | 耦合清理（ToolRegistry） | ✅ | `core/tool_registry.py`、`tests/test_agent_decoupling.py` | 无；保持 AST 门禁 |
+| **1.4** | CLI Demo 体验提升 | ✅ | `cli/demo_display.py`、`cli/stats.py`、`main.py --plain` | 可选：Web 复用 Rich 片段 |
+| **1.5** | knowledge_helpers | ✅ | `utils/knowledge.py`；ProblemSolver ReAct 前 `search_knowledge` | 见阶段 4 深化 |
+| **1.6** | ProjectState 增强 | ✅ | `core/state.py`：`confidence_score`、`risk_level`；`conversation_history` handoff | 持久化 `_RUN_RESET_FIELDS` 已兼容 |
+| **1.7** | 核心测试补充 | ✅ | `test_problem_solver.py`、`test_compliance.py`、`test_knowledge.py`、`test_cli_stats.py` | 146 offline passed |
+
+### 15.2 阶段 1 签收清单（DoD）
+
+- [x] `make demo-security` / `demo-itil` / `demo-mixed` 一键可跑
+- [x] Rich 故事板：问题 → 方案 → 合规（含重试时间线）→ 资料 → PM → 统计
+- [x] `--check-mode strict|advisory|lenient` 行为可测（`test_check_mode.py`）
+- [x] 6 Agent 经 `BaseAgent.get_tools()`，无 `build_*_tools` 直连
+- [x] 启发式引用率 / rule_id 映射率门禁（`test_metrics.py`）
+- [ ] **可选签收项**：CI `workflow_dispatch` 跑 `make test-llm` 绿（需 API Key）
+
+### 15.3 阶段 1 收尾（≤2 天）
+
+| 顺序 | 动作 | 产出 |
+|------|------|------|
+| 1 | 三场景 smoke + `--report` 归档样例 | `reports/demo-*.md` 样例 |
+| 2 | README「Demo 故事板」一节 | 用户可见 `--plain` / 场景说明 |
+| 3 | 更新 ARCHITECTURE §A.9 勾选 Rich Demo | 文档一致 |
+
+---
+
+## 16. 阶段 2 — 架构收口与一致性提升
+
+**目标**：结构清晰、解耦彻底，新增 Agent 可按 checklist 接入。
+
+### 16.1 任务分解
+
+| 编号 | 任务 | 状态 | 优先级 | 建议顺序 | 涉及文件 |
+|------|------|------|--------|----------|----------|
+| **2.1** | 轻量 AgentRegistry | ✅ | P0 | 1 | `core/agent_registry.py`；`workflow.py` 经 Registry |
+| **2.2** | 统一 Agent 输出结构 | ✅ | — | — | `agents/output_base.py`；各 `*_output.py` |
+| **2.3** | prompts 目录整理 | ✅ | — | — | `prompts/<agent>/prompts.py`；legacy 重导出 |
+| **2.4** | 运行时日志与追踪增强 | ✅ | P1 | 2 | `agent_runner.py` `duration_ms`；`run_report.py` handoff |
+| **2.5** | 代码风格与注释统一 | ✅ | P2 | 3 | 新模块 docstring + 契约注释 |
+
+### 16.2 任务 2.1 — AgentRegistry 设计要点
+
+**不做**：YAML 外置 workflow、动态热加载（留 §B）。
+
+**最小 API**：
+
+```python
+# core/agent_registry.py（拟议）
+register_agent(name: str, agent_cls: type[BaseAgent], *, node_fn: Callable | None = None)
+get_agent(name: str) -> BaseAgent
+list_agents() -> list[str]
+```
+
+**迁移步骤**：
+
+1. 将 `workflow.py` 中 Agent 实例化改为 Registry `get_agent`
+2. Supervisor 路由表从 `AgentName` 枚举 + Registry 查表，删除重复 `if agent == ...` 分支（保留合规重试等特殊边）
+3. 新增 `tests/test_agent_registry.py`：注册、获取、未注册抛错
+4. 更新 ARCHITECTURE §A.10「新增 Agent 检查清单」第 3 步为 Registry
+
+**退出标准**：新增 mock Agent 仅需 4 文件（agent、tools、registry 一行、test），不改 Supervisor 主体。
+
+### 16.3 任务 2.4 — 追踪增强（在现有 `pipeline_trace` 上扩展）
+
+| 子项 | 说明 |
+|------|------|
+| 统一 trace 事件 schema | `agent`、`status`、`duration_ms`、`check_mode`、`retry_generation` |
+| `--report` 增加 Handoff 表 | 读 `conversation_history` event=handoff |
+| Supervisor 每节点计时 | `time.perf_counter()` 写入 trace |
+
+---
+
+## 17. 阶段 3 — 半自治执行能力（v1.1）
+
+**目标**：AI 生成可执行内容 + 受控审批，Demo 可模拟全流程。
+
+### 17.1 任务总览
+
+| 编号 | 任务 | 状态 | 依赖 | 建议顺序 |
+|------|------|------|------|----------|
+| **3.1** | ConfidenceScorer | ✅ | 阶段 1 `confidence_score` 字段 | 完成 |
+| **3.2** | Execution Layer（基础） | ✅ | 3.1 | `core/execution/` |
+| **3.3** | ApprovalFlow（基础） | ✅ | 3.1 | `core/approval/` |
+| **3.4** | Supervisor 流程扩展 | ✅ | 3.2、3.3 | PM → Execution → Approval → Finalize |
+| **3.5** | ProjectState 执行字段 | ✅ | 3.2 | `execution_tasks` 等 |
+| **3.6** | CLI Demo 审批模拟 | ✅ | 3.3、3.4 | `--auto-approve` / `--approve` |
+
+### 17.2 任务 3.1 — ConfidenceScorer（详细设计）
+
+#### 现状
+
+- `forge/cli/stats.py` 中 `compute_confidence_score()` 为**启发式占位**（合规状态 + 重试 + 引用数 + agent_errors）
+- `finalize_node` 写入 `ProjectState.confidence_score`；Demo 统计面板展示
+- **缺口**：无独立模块、无历史成功率、无可配置权重、CLI 与 core 耦合
+
+#### 目标
+
+将置信度计算提升为 **可测试、可配置、可扩展** 的 v1.1 核心模块，为 ApprovalFlow（3.3）提供唯一决策输入。
+
+#### 模块布局
+
+```
+forge/core/confidence/
+├── __init__.py          # export ConfidenceScorer, ConfidenceResult
+├── scorer.py            # ConfidenceScorer 主类
+├── factors.py           # 各因子计算器（纯函数）
+└── config.py            # 默认权重与阈值（可从 settings 覆盖）
+```
+
+#### 数据模型
+
+```python
+@dataclass
+class ConfidenceFactors:
+    compliance_factor: float      # 0–1，来自 compliance_status + check_mode
+    evidence_factor: float        # Rule Pack 引用数、检查项覆盖
+    retry_penalty: float          # compliance_retry_count 衰减
+    error_penalty: float          # agent_errors / degraded_agents
+    history_factor: float         # v1.1 先 stub=0.5；后续接 knowledge 成功率
+
+@dataclass
+class ConfidenceResult:
+    score: float                  # 0.0–1.0
+    level: str                    # high | medium | low
+    factors: ConfidenceFactors
+    recommendation: str           # auto_execute | needs_review | block
+    explanation: list[str]        # 供 Demo / 报告展示
+```
+
+#### 评分公式（v1.1 初版）
+
+```
+raw = w_c * compliance_factor
+    + w_e * evidence_factor
+    + w_h * history_factor
+    - w_r * retry_penalty
+    - w_err * error_penalty
+
+score = clamp(raw, 0.0, 1.0)
+```
+
+**默认权重**（`config.py`，总和不必为 1，按因子尺度归一）：
+
+| 因子 | 默认 w | 说明 |
+|------|--------|------|
+| compliance | 0.40 | compliant=1.0, partial=0.6, non_compliant=0.2；strict 模式 ×0.9 |
+| evidence | 0.25 | `min(1.0, refs/5)` + 合规项 rule_id 映射率 |
+| history | 0.15 | 初版固定 0.5；4.3 后接 `knowledge_base` 同类案例成功率 |
+| retry_penalty | 0.12/次 | 上限 0.36 |
+| error_penalty | 0.08/个 | 上限 0.24 |
+
+**阈值 → recommendation**：
+
+| score | level | recommendation |
+|-------|-------|----------------|
+| ≥ 0.75 | high | `auto_execute`（仍受 Compliance 红线约束） |
+| 0.45–0.74 | medium | `needs_review` |
+| < 0.45 | low | `block` |
+
+#### 集成点
+
+| 位置 | 变更 |
+|------|------|
+| `supervisor.finalize_node` | `from forge.core.confidence import ConfidenceScorer`；替换 `cli.stats` import |
+| `cli/stats.py` | `compute_confidence_score` 委托给 `ConfidenceScorer.score_from_state()` |
+| `core/state.py` | 可选：`confidence_level`、`confidence_recommendation` 字段 |
+| `agents/compliance.py` | 输出中附带 `evidence_coverage` 供 evidence_factor |
+| Demo | `demo_display` 展示 factors 分解树（Rich Tree） |
+
+#### 实施步骤（建议 3–4 天）
+
+| 天 | 步骤 | 测试 |
+|----|------|------|
+| D1 | 创建 `factors.py` 纯函数 + `ConfidenceResult` | `test_confidence_factors.py` |
+| D2 | `ConfidenceScorer.score(state)` + 配置 | `test_confidence_scorer.py` 矩阵用例 |
+| D3 | 迁移 finalize / cli.stats；保持旧分数近似 | 回归 `test_cli_stats.py` |
+| D4 | Demo factors 树 + `--report` 一节 | 手动 smoke |
+
+#### 测试矩阵（离线必覆盖）
+
+- compliant + 0 retry + ≥3 refs → score ≥ 0.75
+- partial + 1 retry → medium
+- non_compliant + strict → low / block
+- agent_errors ≥ 2 → 显著降分
+- 与旧 `compute_confidence_score` 偏差 ≤ 0.15（迁移兼容）
+
+#### 与 3.3 ApprovalFlow 的契约
+
+```python
+# approval_flow.py（3.3 消费）
+if result.recommendation == "needs_review":
+    create_approval_request(state, reason=result.explanation)
+elif result.recommendation == "block":
+    skip_execution_layer(state)
+```
+
+### 17.3 任务 3.2–3.6 概要（3.1 完成后）
+
+| 编号 | 核心交付 | 关键文件 |
+|------|----------|----------|
+| 3.2 | `ExecutionTask` 模型 + 生成 remediation WBS / 变更申请草稿 | `core/execution/`、`agents/execution.py` |
+| 3.3 | `ApprovalRequest` 状态机：pending → approved/rejected | `core/approval/flow.py` |
+| 3.4 | Supervisor 在 finalize 前插入 `execution_node` → `approval_gate_node` | `core/supervisor.py`、`core/workflow.py` |
+| 3.5 | state：`execution_tasks[]`、`approval_requests[]`、`pending_approvals` | `core/state.py` |
+| 3.6 | Demo 面板「⑥ 待审批任务」+ `--approve` / `--reject` 模拟 | `cli/demo_display.py`、`main.py` |
+
+---
+
+## 18. 阶段 4 — 知识与记忆能力增强
+
+**目标**：项目级记忆与知识复用（长期差异化）。
+
+| 编号 | 任务 | 状态 | 说明 |
+|------|------|------|------|
+| **4.1** | knowledge_base 结构化 | ✅ | `type`、`related_rules`、`outcome` |
+| **4.2** | 知识检索增强 | ✅ | 多 tag 重叠评分排序 |
+| **4.3** | 知识自动沉淀 | ✅ | `utils/knowledge_extract.py` + finalize |
+| **4.4** | Memory Graph 数据模型 | ✅ | `core/memory/graph.py` stub |
+| **4.5** | 知识库 CLI 可视化 | ✅ | `py main.py kb search --tag security` |
+
+**与 3.1 衔接**：`history_factor` 在 4.3 完成后读取 `knowledge_base` 中同 `problem_type` 案例的 `outcome` 字段计算成功率。
+
+---
+
+## 19. 推荐执行顺序（接下来 4–6 周）
+
+```mermaid
+flowchart LR
+    S1[阶段1 签收收尾] --> S2_1[2.1 AgentRegistry]
+    S2_1 --> S2_4[2.4 追踪增强]
+    S2_4 --> S3_1[3.1 ConfidenceScorer]
+    S3_1 --> S3_2[3.2 Execution Layer]
+    S3_1 --> S3_3[3.3 ApprovalFlow]
+    S3_2 --> S3_4[3.4 Supervisor 扩展]
+    S3_3 --> S3_4
+    S3_4 --> S3_6[3.6 Demo 审批模拟]
+    S3_1 -.-> S4_3[4.3 知识沉淀]
+    S4_3 -.-> S3_1
+```
+
+| 周 | 聚焦 | 交付物 |
+|----|------|--------|
+| **W1** | 阶段 1 签收 + 2.1 | AgentRegistry MVP；README Demo 节 |
+| **W2** | 2.4 + 3.1 D1–D4 | ConfidenceScorer 模块 + 测试 + Demo factors |
+| **W3** | 3.2 + 3.3 | ExecutionTask / ApprovalRequest 模型与状态机 |
+| **W4** | 3.4 + 3.5 + 3.6 | Supervisor 半自治分支；CLI 审批模拟 |
+| **W5+** | 4.1–4.3 与 3.1 history_factor 闭环 | 知识沉淀 + 置信度历史因子 |
+
+**并行策略**：阶段 4 的 4.1 字段扩展可与 3.2 并行；4.4 Memory Graph 仅设计不写实现。
+
+---
+
+## 20. 任务状态板（四阶段，执行时更新）
+
+| 阶段 | 任务 | 状态 | 负责人 | 目标完成 |
+|------|------|------|--------|----------|
+| 1 | 1.1–1.7 | ✅ | — | 2026-06 |
+| 1 | 签收收尾（§15.3） | ✅ | — | 2026-06-06 |
+| 2 | 2.1 AgentRegistry | ✅ | `core/agent_registry.py` | 2026-06-06 |
+| 2 | 2.4 追踪增强 | ✅ | `duration_ms` + report handoff | 2026-06-06 |
+| 2 | 2.5 注释统一 | ✅ | 核心模块 docstring | 2026-06-06 |
+| 3 | **3.1 ConfidenceScorer** | ✅ | `core/confidence/` | 2026-06-06 |
+| 3 | 3.2–3.6 | ✅ | execution/approval + CLI | 2026-06-06 |
+| 4 | 4.1–4.2 | ✅ | 结构化 KB + 排序检索 | 2026-06-06 |
+| 4 | 4.3–4.5 | ✅ | 沉淀 + graph stub + `kb` CLI | 2026-06-06 |
+
+---
+
+## 21. 修订记录（续）
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| 2.0 | 2026-06-06 | 四阶段路线图 §14–§20；ConfidenceScorer 详细设计 §17.2；阶段 1 签收状态 |

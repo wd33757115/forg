@@ -22,6 +22,8 @@ def build_run_report_markdown(
     docs = result.get("generated_documents") or []
     trace = result.get("pipeline_trace") or []
     errors = result.get("agent_errors") or []
+    confidence = result.get("last_confidence_result") or {}
+    tasks = result.get("execution_tasks") or []
 
     lines = [
         f"# Forge 运行报告",
@@ -48,23 +50,67 @@ def build_run_report_markdown(
         f"- 风险: {compliance.get('risk_level', '—')}",
         f"- 缺口数: {len(compliance.get('missing_items', []))}",
         "",
-        "## 资料",
-        f"共 {len(docs)} 份: "
-        + ", ".join(d.get("doc_type", "?") for d in docs[:10])
-        if docs
-        else "无",
-        "",
-        "## 流水线追踪",
     ]
+
+    if confidence:
+        lines.extend(
+            [
+                "## 置信度",
+                f"- 分数: {confidence.get('score', result.get('confidence_score', '—'))}",
+                f"- 等级: {confidence.get('level', result.get('confidence_level', '—'))}",
+                f"- 建议: {confidence.get('recommendation', result.get('confidence_recommendation', '—'))}",
+                "",
+            ]
+        )
+        factors = confidence.get("factors") or {}
+        if factors:
+            lines.append(
+                f"- 因子: 合规={factors.get('compliance_factor')} "
+                f"证据={factors.get('evidence_factor')} "
+                f"历史={factors.get('history_factor')}"
+            )
+            lines.append("")
+
+    if tasks:
+        lines.extend(["## 执行任务", f"共 {len(tasks)} 项:"])
+        for t in tasks[:8]:
+            lines.append(f"- [{t.get('status')}] {t.get('title', '')}")
+        lines.append("")
+
+    lines.extend(
+        [
+            "## 资料",
+            f"共 {len(docs)} 份: "
+            + ", ".join(d.get("doc_type", "?") for d in docs[:10])
+            if docs
+            else "无",
+            "",
+            "## 流水线追踪",
+        ]
+    )
 
     if trace:
         for step in trace:
             status = step.get("status", "?")
             agent = step.get("agent", "?")
             detail = step.get("detail", "")
-            lines.append(f"- **{agent}** [{status}] {detail}")
+            dur = step.get("duration_ms")
+            dur_s = f" {dur}ms" if dur is not None else ""
+            mode = step.get("check_mode")
+            mode_s = f" mode={mode}" if mode else ""
+            lines.append(f"- **{agent}** [{status}]{dur_s}{mode_s} {detail}")
     else:
         lines.append("- （无 pipeline_trace）")
+
+    handoffs = [h for h in (result.get("conversation_history") or []) if h.get("event") == "handoff"]
+    if handoffs:
+        lines.extend(["", "## Agent Handoff"])
+        for h in handoffs:
+            d = h.get("detail") or {}
+            lines.append(
+                f"- {d.get('from_agent')} → {d.get('to_agent')} "
+                f"({', '.join(d.get('payload_keys') or [])})"
+            )
 
     if errors:
         lines.extend(["", "## 错误"])
@@ -74,6 +120,10 @@ def build_run_report_markdown(
     pm = result.get("last_pm_advice") or {}
     if pm.get("summary"):
         lines.extend(["", "## PM 摘要", pm["summary"][:500]])
+
+    pending = result.get("pending_approvals") or []
+    if pending:
+        lines.extend(["", "## 待审批", f"共 {len(pending)} 项待人工审批"])
 
     return "\n".join(lines)
 

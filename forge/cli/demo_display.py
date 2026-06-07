@@ -56,6 +56,9 @@ class ForgeDemoDisplay(ForgeDisplay):
         self._print_compliance_retry_timeline(result)
         self._print_documents_panel(result)
         self._print_pm_panel(result)
+        self._print_confidence_factors(result)
+        self._print_execution_panel(result)
+        self._print_approval_panel(result)
         self._print_thinking_chain_rich(result)
         self._print_handoff_chain(result)
         self.print_agent_contributions(result)
@@ -212,6 +215,67 @@ class ForgeDemoDisplay(ForgeDisplay):
         self._console.print(
             Panel(table, title=f"④ Document 资料（{len(docs)} 份）", border_style="green")
         )
+
+    def _print_confidence_factors(self, result: dict[str, Any]) -> None:
+        conf = result.get("last_confidence_result") or {}
+        if not conf and result.get("confidence_score") is None:
+            return
+        factors = conf.get("factors") or {}
+        if not self._console or not self.use_color:
+            return
+        tree = Tree(
+            f"[bold]置信度 {conf.get('score', result.get('confidence_score', 0)):.0%}[/] "
+            f"({conf.get('level', result.get('confidence_level', '—'))})"
+        )
+        for key, label in (
+            ("compliance_factor", "合规"),
+            ("evidence_factor", "证据"),
+            ("history_factor", "历史"),
+            ("retry_penalty", "重试惩罚"),
+            ("error_penalty", "错误惩罚"),
+        ):
+            if key in factors:
+                tree.add(f"{label}: {factors[key]}")
+        rec = conf.get("recommendation", result.get("confidence_recommendation", ""))
+        if rec:
+            tree.add(f"建议: [cyan]{rec}[/]")
+        self._console.print(Panel(tree, title="置信度分解", border_style="cyan"))
+
+    def _print_execution_panel(self, result: dict[str, Any]) -> None:
+        tasks = result.get("execution_tasks") or []
+        if not tasks:
+            return
+        if not self._console or not self.use_color:
+            return
+        table = Table(box=box.SIMPLE_HEAD)
+        table.add_column("状态")
+        table.add_column("类型")
+        table.add_column("标题", max_width=50)
+        for t in tasks[:8]:
+            table.add_row(
+                self._status_text(t.get("status", "—")),
+                t.get("task_type", ""),
+                t.get("title", ""),
+            )
+        self._console.print(Panel(table, title="⑥ 执行任务", border_style="bright_green"))
+
+    def _print_approval_panel(self, result: dict[str, Any]) -> None:
+        pending = result.get("pending_approvals") or []
+        status = result.get("approval_status", "—")
+        requests = result.get("approval_requests") or []
+        if not pending and not requests:
+            return
+        if not self._console or not self.use_color:
+            return
+        body = f"审批状态: [bold]{status}[/]\n"
+        if pending:
+            body += f"\n[yellow]待审批 {len(pending)} 项[/] — 使用 --approve / --reject 恢复状态后裁决\n"
+            for p in pending[:3]:
+                body += f"• {p.get('id')} 置信度={p.get('confidence_score', '—')}\n"
+        else:
+            last = requests[-1] if requests else {}
+            body += f"最近: {last.get('status', '—')} ({last.get('resolved_by', '')})"
+        self._console.print(Panel(body.strip(), title="审批流程", border_style="yellow"))
 
     def _print_pm_panel(self, result: dict[str, Any]) -> None:
         pm = result.get("last_pm_advice") or {}

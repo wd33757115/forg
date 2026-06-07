@@ -28,12 +28,18 @@ def append_knowledge(
         entry.setdefault("created_at", datetime.now(timezone.utc).isoformat())
         return entry
     kb = state.get("knowledge_base", [])
+    related_rules = (detail or {}).pop("related_rules", None) if detail else None
+    outcome = (detail or {}).pop("outcome", None) if detail else None
+    entry_type = (detail or {}).pop("type", "case") if detail else "case"
     entry = {
         "id": f"kb-{state.get('project_id', 'unknown')}-{agent}-{len(kb)}",
         "category": category,
         "content": summary,
         "source": agent,
         "tags": tags or [],
+        "type": entry_type,
+        "related_rules": related_rules or [],
+        "outcome": outcome,
         "metadata": detail or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -50,6 +56,21 @@ def append_knowledge_to_state(
     return {"knowledge_base": kb}
 
 
+def _score_entry(entry: dict[str, Any], tag_set: set[str], agent: str | None) -> float:
+    score = 0.0
+    entry_tags = {str(t).lower() for t in entry.get("tags", [])}
+    if tag_set:
+        overlap = len(tag_set.intersection(entry_tags))
+        score += overlap * 2.0
+    if agent and entry.get("source") == agent:
+        score += 1.0
+    if entry.get("outcome") in ("success", "compliant", "resolved"):
+        score += 0.5
+    if entry.get("related_rules"):
+        score += 0.3
+    return score
+
+
 def search_knowledge(
     state: ProjectState,
     *,
@@ -59,18 +80,18 @@ def search_knowledge(
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """
-    Filter knowledge_base entries by tag/agent/category (case-insensitive tag match).
+    Filter and rank knowledge_base entries by tag/agent/category.
 
-    Returns most recent matches first.
+    Multi-tag overlap increases rank; successful outcomes score higher.
     """
     entries = list(state.get("knowledge_base", []))
     if not entries:
         return []
 
     tag_set = {t.lower() for t in (tags or [])}
-    results: list[dict[str, Any]] = []
+    scored: list[tuple[float, dict[str, Any]]] = []
 
-    for entry in reversed(entries):
+    for entry in entries:
         if agent and entry.get("source") != agent:
             continue
         if category and entry.get("category") != category:
@@ -79,11 +100,10 @@ def search_knowledge(
             entry_tags = {str(t).lower() for t in entry.get("tags", [])}
             if not tag_set.intersection(entry_tags):
                 continue
-        results.append(entry)
-        if len(results) >= limit:
-            break
+        scored.append((_score_entry(entry, tag_set, agent), entry))
 
-    return results
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [e for _, e in scored[:limit]]
 
 
 def format_knowledge_context(entries: list[dict[str, Any]]) -> str:

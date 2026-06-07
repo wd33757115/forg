@@ -33,6 +33,14 @@ _RUN_RESET_FIELDS: dict[str, Any] = {
     "workflow_plan": None,
     "pipeline_trace": [],
     "agent_errors": [],
+    "execution_tasks": [],
+    "approval_requests": [],
+    "pending_approvals": [],
+    "approval_status": None,
+    "confidence_level": None,
+    "confidence_recommendation": None,
+    "last_confidence_result": None,
+    "memory_graph": None,
 }
 
 

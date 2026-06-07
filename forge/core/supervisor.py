@@ -41,6 +41,8 @@ class AgentName(StrEnum):
     OPERATIONS = "operations"
     DOCUMENT = "document"
     PM_ADVISOR = "pm_advisor"
+    EXECUTION = "execution"
+    APPROVAL_GATE = "approval_gate"
     FINALIZE = "finalize"
     END = "__end__"
 
@@ -708,16 +710,33 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
     operations = state.get("last_operations_result") or {}
     retry_count = state.get("compliance_retry_count", 0)
 
-    from forge.cli.stats import compute_confidence_score
+    from forge.core.confidence import ConfidenceScorer
+    from forge.utils.knowledge_extract import extract_reusable_knowledge
 
-    confidence_score = compute_confidence_score(
-        {
-            **state,
-            "last_solution": solution,
-            "last_compliance_result": compliance,
-            "compliance_retry_count": retry_count,
+    if state.get("confidence_score") is None:
+        confidence_result = ConfidenceScorer().score(dict(state))
+        confidence_score = confidence_result.score
+        confidence_level = confidence_result.level
+        confidence_recommendation = confidence_result.recommendation
+        last_confidence_result = {
+            "score": confidence_result.score,
+            "level": confidence_result.level,
+            "recommendation": confidence_result.recommendation,
+            "factors": {
+                "compliance_factor": confidence_result.factors.compliance_factor,
+                "evidence_factor": confidence_result.factors.evidence_factor,
+                "history_factor": confidence_result.factors.history_factor,
+                "retry_penalty": confidence_result.factors.retry_penalty,
+                "error_penalty": confidence_result.factors.error_penalty,
+            },
+            "explanation": confidence_result.explanation,
         }
-    )
+    else:
+        confidence_score = state.get("confidence_score")
+        confidence_level = state.get("confidence_level")
+        confidence_recommendation = state.get("confidence_recommendation")
+        last_confidence_result = state.get("last_confidence_result")
+
     session_risk = compliance.get("risk_level", "unknown")
 
     rec_id = solution.get("recommended_solution_id", "N/A")
@@ -750,6 +769,12 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         "agent_errors": agent_errors,
         "degraded_agents": degraded_agents,
         "run_id": state.get("run_id"),
+        "confidence_score": confidence_score,
+        "confidence_level": confidence_level,
+        "confidence_recommendation": confidence_recommendation,
+        "execution_tasks": state.get("execution_tasks", []),
+        "approval_status": state.get("approval_status"),
+        "pending_approvals": state.get("pending_approvals", []),
     }
 
     lines = [
@@ -838,15 +863,21 @@ def finalize_node(state: ProjectState) -> dict[str, Any]:
         ),
     )
 
+    kb_patch = extract_reusable_knowledge(state)
+
     finalize_updates: dict[str, Any] = {
         "next_agent": AgentName.END.value,
         "workflow_step": None,
         "active_workflow": None,
         "final_output": final_output,
         "confidence_score": confidence_score,
+        "confidence_level": confidence_level,
+        "confidence_recommendation": confidence_recommendation,
+        "last_confidence_result": last_confidence_result,
         "risk_level": session_risk,
         "messages": [AIMessage(content="\n".join(lines), name="forge_finalize")],
     }
+    finalize_updates.update(kb_patch)
     finalize_updates.update(
         record_conversation(
             state,

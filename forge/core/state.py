@@ -102,6 +102,9 @@ class KnowledgeEntry(BaseModel):
     content: str
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
+    type: str = "case"
+    related_rules: list[str] = Field(default_factory=list)
+    outcome: str | None = None
 
 
 class PendingTask(BaseModel):
@@ -163,7 +166,17 @@ class ProjectState(TypedDict):
     check_mode: str | None
     # v1.1 session metrics (set during pipeline / finalize)
     confidence_score: float | None
+    confidence_level: str | None
+    confidence_recommendation: str | None
+    last_confidence_result: dict[str, Any] | None
     risk_level: str | None
+    # v1.1 execution & approval
+    execution_tasks: list[dict[str, Any]]
+    approval_requests: list[dict[str, Any]]
+    pending_approvals: list[dict[str, Any]]
+    approval_status: str | None
+    auto_approve: bool
+    memory_graph: dict[str, Any] | None
 
 
 def create_initial_state(
@@ -210,5 +223,14 @@ def create_initial_state(
         next_agent=None,
         check_mode=DEFAULT_CHECK_MODE,
         confidence_score=None,
+        confidence_level=None,
+        confidence_recommendation=None,
+        last_confidence_result=None,
         risk_level=None,
+        execution_tasks=[],
+        approval_requests=[],
+        pending_approvals=[],
+        approval_status=None,
+        auto_approve=False,
+        memory_graph=None,
     )
