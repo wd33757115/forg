@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-07T15:00:33.795327+00:00",
+  "generated_at": "2026-06-07T16:33:23.368068+00:00",
   "overall_pass": true,
   "offline_pass": true,
   "kpis": [
@@ -51,10 +51,10 @@
     {
       "kpi_id": "PS-CLS-01",
       "name": "问题分类准确率",
-      "value": 1.0,
+      "value": 0.917,
       "threshold": 0.8,
       "passed": true,
-      "detail": "12/12",
+      "detail": "cls-05: got mixed, want service_management",
       "inverted": false
     },
     {

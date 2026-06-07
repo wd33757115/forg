@@ -139,6 +139,7 @@ class ProjectState(TypedDict):
     rule_pack: dict[str, Any] | None
     # Closed-loop control (ProblemSolver ↔ Compliance ↔ Document)
     compliance_retry_count: int
+    compliance_feedback: dict[str, Any] | None
     last_solution: dict[str, Any] | None
     last_compliance_result: dict[str, Any] | None
     generated_documents: list[dict[str, Any]]
@@ -203,6 +204,7 @@ def create_initial_state(
         pending_tasks=[],
         rule_pack=rule_pack,
         compliance_retry_count=0,
+        compliance_feedback=None,
         last_solution=None,
         last_compliance_result=None,
         generated_documents=[],

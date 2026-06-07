@@ -86,7 +86,7 @@ def test_run_tool_research(base_state):
     ],
 )
 def test_classify_problem_types(question, hint, expected):
-    ptype, _reason = classify_problem(question, hint=hint)
+    ptype, _reason, _conf = classify_problem(question, hint=hint)
     assert ptype == expected
 
 
@@ -101,13 +101,13 @@ def test_classify_problem_types(question, hint, expected):
 )
 def test_classify_problem_auto_without_hint(question, expected):
     """Auto classification without CLI hint (security / itil / general)."""
-    ptype, _reason = classify_problem(question)
+    ptype, _reason, _conf = classify_problem(question)
     assert ptype == expected
 
 
 def test_classify_auth_fault_not_mixed_with_generic_fault_keyword():
     """401 + 故障 should stay security, not mixed."""
-    ptype, _ = classify_problem("登录401认证故障请诊断")
+    ptype, _, _conf = classify_problem("登录401认证故障请诊断")
     assert ptype == "security"
 
 
@@ -191,3 +191,51 @@ def test_solution_output_json_schema():
     data = sol.model_dump()
     assert "problem_analysis" in data
     assert "recommended_solution_id" in data
+
+
+def test_d3_execution_feedback_formatting_and_learning():
+    """D3: execution feedback is formatted and forces learning citation in reasoning."""
+    from forge.agents.problem_solver import _format_execution_feedback, ProblemSolverAgent
+    from forge.agents.solution_output import SolutionOutput
+
+    execs = [
+        {"task_id": "t1", "status": "failed", "summary": "部署失败：权限不足"},
+        {"task_id": "t2", "status": "success", "summary": "回滚成功"},
+    ]
+    block = _format_execution_feedback(execs)
+    assert "过往执行反馈" in block
+    assert "t1" in block and "failed" in block
+
+    sol = SolutionOutput(
+        problem_analysis="现象",
+        root_causes=["c"],
+        solutions=[{"id": "s1", "title": "s", "description": "d", "approach": "a", "trade_offs": ["t"], "compliance_impact": "c", "itil_guidance": "i", "estimated_effort": "e", "risk_level": "low"}],
+        recommended_solution_id="s1",
+        next_actions=["n1"],
+        reasoning="基础推理。",
+    )
+    ProblemSolverAgent._ensure_execution_learning(sol, block)
+    assert "过往执行" in sol.reasoning or "参考过往执行" in sol.reasoning
+
+
+def test_d3_confidence_includes_history_and_exec():
+    """D3: _compute_confidence factors positive history and exec results."""
+    from forge.agents.problem_solver import ProblemSolverAgent
+    from forge.agents.solution_output import SolutionOutput, RulePackReference
+
+    sol = SolutionOutput(
+        problem_analysis="p",
+        root_causes=["r"],
+        solutions=[{"id": "s1", "title": "s", "description": "d", "approach": "a", "trade_offs": ["t"], "compliance_impact": "c", "itil_guidance": "i", "estimated_effort": "e", "risk_level": "low"}],
+        recommended_solution_id="s1",
+        next_actions=["n"],
+        rule_pack_references=[RulePackReference(rule_id="db-acs-001", module="dengbao_2.0", title="t", relevance="现象→规则")],
+        reasoning="有 rule_id 的推理。",
+    )
+    prior = [{"id": "case-1", "outcome": "success"}]
+    execs = [{"status": "success"}]
+    base = ProblemSolverAgent._compute_confidence(sol, research_context="db-acs-001")
+    with_hist = ProblemSolverAgent._compute_confidence(sol, research_context="db-acs-001", prior_cases=prior)
+    with_exec = ProblemSolverAgent._compute_confidence(sol, research_context="db-acs-001", execution_results=execs)
+    assert with_hist >= base - 0.001  # positive history should not decrease
+    assert with_exec >= base - 0.001

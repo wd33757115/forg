@@ -21,4 +21,8 @@ class ConfidenceWeights:
 HIGH_THRESHOLD = 0.75
 MEDIUM_THRESHOLD = 0.45
 
+# ProblemSolver internal confidence (separate from session ConfidenceScorer)
+PS_CONFIDENCE_DEFAULT_UNSET = 0.5
+PS_HEURISTIC_CONFIDENCE_CAP = 0.55
+
 DEFAULT_WEIGHTS = ConfidenceWeights()

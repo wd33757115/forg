@@ -18,6 +18,7 @@ STATE_FORMAT_VERSION = 2
 # Fields reset when starting a new workflow run on top of saved state
 _RUN_RESET_FIELDS: dict[str, Any] = {
     "compliance_retry_count": 0,
+    "compliance_feedback": None,
     "last_solution": None,
     "last_compliance_result": None,
     "generated_documents": [],

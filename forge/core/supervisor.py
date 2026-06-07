@@ -22,14 +22,20 @@ from forge.core.state import (
     WORKFLOW_SECURITY_STANDALONE,
     ProjectState,
 )
+from forge.core.compliance_loop import (
+    MAX_COMPLIANCE_RETRIES,
+    ComplianceLoopController,
+    is_compliant,
+    is_non_compliant,
+    is_partial_compliant,
+    should_generate_documents,
+)
+from forge.utils.compliance_feedback import build_compliance_feedback
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.logger import get_logger, log_pipeline_step
 from forge.utils.trace import append_pipeline_trace, build_supervisor_trace_entry
 
 logger = get_logger("supervisor")
-
-# Maximum compliance-driven re-optimizations of the solution (after the first attempt)
-MAX_COMPLIANCE_RETRIES = 2
 
 
 class AgentName(StrEnum):
@@ -66,38 +72,19 @@ class SupervisorDecision(BaseModel):
 
 def is_compliant(compliance_result: dict[str, Any] | None) -> bool:
     """Return True when compliance_status is compliant or overall_status is pass."""
-    if not compliance_result:
-        return False
-    if compliance_result.get("compliance_status") == "compliant":
-        return True
-    return compliance_result.get("overall_status") == "pass"
+# The four predicates + MAX_COMPLIANCE_RETRIES are now defined in forge.core.compliance_loop
+# and re-exported here for backward compatibility with tests and other modules.
+from forge.core.compliance_loop import (
+    MAX_COMPLIANCE_RETRIES,  # already imported above, re-listed for clarity
+    is_compliant,
+    is_non_compliant,
+    is_partial_compliant,
+    should_generate_documents,
+)
 
-
-def is_partial_compliant(compliance_result: dict[str, Any] | None) -> bool:
-    """Return True when compliance is partial (gaps but manageable risk)."""
-    if not compliance_result:
-        return False
-    if compliance_result.get("compliance_status") == "partial":
-        return True
-    return (
-        compliance_result.get("overall_status") == "gaps_found"
-        and compliance_result.get("risk_level") in ("low", "medium")
-    )
-
-
-def should_generate_documents(compliance_result: dict[str, Any] | None) -> bool:
-    """DocumentAgent runs when compliant or partial."""
-    return is_compliant(compliance_result) or is_partial_compliant(compliance_result)
-
-
-def is_non_compliant(compliance_result: dict[str, Any] | None) -> bool:
-    """Fully non-compliant — not eligible for document generation."""
-    if not compliance_result:
-        return True
-    status = compliance_result.get("compliance_status")
-    if status == "non_compliant":
-        return True
-    return not is_compliant(compliance_result) and not is_partial_compliant(compliance_result)
+# Ensure names are present in this module's namespace for
+#   `from forge.core.supervisor import is_compliant, should_generate_documents, ...`
+# (the previous from-import already brought them in; this is explicit for readers)
 
 
 class Supervisor:
@@ -120,6 +107,7 @@ class Supervisor:
         self._enabled_modules = self.rule_pack.get_enabled_modules()
         self._planner = PipelinePlanner()
         self._orchestrator = PipelineOrchestrator(self._planner)
+        self._compliance_loop = ComplianceLoopController(max_retries=MAX_COMPLIANCE_RETRIES)
 
     def _resolve_orchestration(self, content: str, state: ProjectState) -> OrchestrationContext:
         """Classify problem type and resolve specialist agent queue."""
@@ -261,7 +249,10 @@ class Supervisor:
         elif entry_agent == AgentName.DOCUMENT:
             plan = self._planner.build_for_document_standalone()
         else:
-            plan = self._planner.build_for_problem_loop(content, is_security=is_sec, is_operations=is_ops)
+            # Converged path (P1): always go through Orchestrator for the main problem loop queue
+            ctx = self._resolve_orchestration(content, st)
+            plan = self._orchestrator.build_problem_loop_plan(ctx)
+            return {**plan.to_dict(), **orchestration_metadata(ctx, plan)}
 
         return plan.to_dict()
 
@@ -353,46 +344,34 @@ class Supervisor:
         """
         After ComplianceAgent runs in the closed loop, decide retry or finalize.
 
-        Retries up to MAX_COMPLIANCE_RETRIES when non_compliant.
+        Delegates to ComplianceLoopController (P1 extraction).
         """
-        compliance = state.get("last_compliance_result") or {}
-        retry_count = state.get("compliance_retry_count", 0)
+        return self._compliance_loop.decide_after_compliance(state)
 
-        if should_generate_documents(compliance):
-            label = compliance.get("compliance_status", "compliant")
-            return SupervisorDecision(
-                next_agent=AgentName.DOCUMENT,
-                reason=f"Compliance {label} — generating project documents",
-                confidence=1.0,
-            )
-
-        if retry_count < MAX_COMPLIANCE_RETRIES:
-            return SupervisorDecision(
-                next_agent=AgentName.PROBLEM_SOLVER,
-                reason=(
-                    f"non_compliant — re-optimizing solution "
-                    f"(retry {retry_count + 1}/{MAX_COMPLIANCE_RETRIES})"
-                ),
-            )
-
-        return SupervisorDecision(
-            next_agent=AgentName.PM_ADVISOR,
-            reason=(
-                f"non_compliant after {retry_count} retries — "
-                "PM advisory before finalize (docs skipped)"
-            ),
-            confidence=0.6,
-        )
-
-    def _build_retry_feedback_message(self, compliance: dict[str, Any]) -> HumanMessage:
+    def _build_retry_feedback_message(
+        self,
+        compliance: dict[str, Any],
+        *,
+        structured_feedback: dict[str, Any] | None = None,
+    ) -> HumanMessage:
         """Inject compliance gaps as context for ProblemSolver re-optimization."""
-        missing = compliance.get("missing_items", [])
-        recs = compliance.get("recommendations", [])
+        feedback = structured_feedback or build_compliance_feedback(compliance)
+        failed = feedback.get("failed_items") or []
+        missing = feedback.get("missing_items") or compliance.get("missing_items", [])
+        recs = feedback.get("suggestions") or compliance.get("recommendations", [])
+        failed_lines = "\n".join(
+            f"- [{f.get('status')}] `{f.get('rule_id')}` ({f.get('severity')}) "
+            f"{f.get('title', '')}: {(f.get('suggestion') or '')[:120]}"
+            for f in failed[:8]
+        )
         body = (
             "【合规反馈 — 请优化方案】\n"
-            f"合规状态: {compliance.get('compliance_status', 'non_compliant')}\n"
-            f"风险等级: {compliance.get('risk_level', 'unknown')}\n\n"
-            "缺失项:\n"
+            f"合规状态: {feedback.get('compliance_status', 'non_compliant')}\n"
+            f"检查模式: {feedback.get('check_mode', '—')}\n"
+            f"风险等级: {feedback.get('risk_level', 'unknown')}\n\n"
+            "失败项 (failed_items — 必须在 reasoning 中逐条响应):\n"
+            + (failed_lines if failed_lines else "- 见 state.compliance_feedback")
+            + "\n\n缺口:\n"
             + ("\n".join(f"- {m}" for m in missing[:8]) if missing else "- 见上次合规报告")
             + "\n\n整改建议:\n"
             + ("\n".join(f"- {r}" for r in recs[:5]) if recs else "- 请对照 Rule Pack 补齐证据")
@@ -439,36 +418,14 @@ class Supervisor:
                 retry_count,
                 MAX_COMPLIANCE_RETRIES,
             )
-            retry_updates: dict[str, Any] = {
-                "next_agent": AgentName.PROBLEM_SOLVER.value,
-                "compliance_retry_count": retry_count,
-                "workflow_step": WorkflowStep.INITIAL,
-                "active_workflow": WORKFLOW_PROBLEM_COMPLIANCE_LOOP,
-                "rule_pack": self._state_rule_pack_update(state),
-                "messages": [
-                    AIMessage(
-                        content=(
-                            f"[Supervisor] Compliance retry {retry_count}/{MAX_COMPLIANCE_RETRIES} "
-                            "— sending feedback to ProblemSolver"
-                        ),
-                        name="supervisor",
-                    ),
-                    self._build_retry_feedback_message(compliance),
-                ],
-            }
-            retry_updates.update(
-                record_conversation(
-                    state,
-                    agent="supervisor",
-                    event="compliance_retry",
-                    summary=f"第 {retry_count} 次合规重试，反馈给 ProblemSolver",
-                    detail={
-                        "retry_count": retry_count,
-                        "compliance_status": compliance.get("compliance_status"),
-                        "missing_count": len(compliance.get("missing_items", [])),
-                    },
-                )
+            # Use the extracted controller for consistent retry state prep (P1)
+            retry_updates = self._compliance_loop.build_retry_updates(
+                state,
+                compliance=compliance,
+                retry_count=retry_count,
             )
+            # Ensure rule_pack is refreshed (controller does not own this)
+            retry_updates["rule_pack"] = self._state_rule_pack_update(state)
             return retry_updates
         else:
             decision = self.decide_initial(state)
@@ -523,6 +480,7 @@ class Supervisor:
         if step == WorkflowStep.INITIAL and decision.next_agent == AgentName.PROBLEM_SOLVER:
             updates["active_workflow"] = WORKFLOW_PROBLEM_COMPLIANCE_LOOP
             updates["compliance_retry_count"] = 0
+            updates["compliance_feedback"] = None
             updates["last_solution"] = None
             updates["last_compliance_result"] = None
             updates["last_security_result"] = None

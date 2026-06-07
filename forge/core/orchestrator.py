@@ -33,7 +33,11 @@ CORE_TAIL: list[str] = [
 
 @dataclass(frozen=True)
 class OrchestrationContext:
-    """Resolved routing context for a user request."""
+    """Resolved routing context for a user request.
+
+    D4: includes classification_confidence and is_uncertain to drive
+    adaptive specialist routing and downstream strategy (PS investigation depth).
+    """
 
     content: str
     problem_type: ProblemType
@@ -42,6 +46,8 @@ class OrchestrationContext:
     is_operations: bool
     is_problem: bool
     specialist_queue: list[str]
+    classification_confidence: float = 0.5
+    is_uncertain: bool = False
 
 
 class PipelineOrchestrator:
@@ -58,10 +64,14 @@ class PipelineOrchestrator:
         self._planner = planner or PipelinePlanner()
 
     def resolve_context(self, state: ProjectState, content: str) -> OrchestrationContext:
-        """Classify problem and decide which specialist agents to invoke."""
+        """Classify problem and decide which specialist agents to invoke.
+
+        D4: captures classification_confidence and widens specialist queue for
+        uncertain / mixed cases to ensure broader coverage ("不确定时走 mixed + 更多工具").
+        """
         lower = content.lower()
         hint = state.get("problem_type_hint") or state.get("problem_type")
-        problem_type, type_reason = classify_problem(content, hint=hint)
+        problem_type, type_reason, conf = classify_problem(content, hint=hint)
 
         is_security = self._keyword_security(lower)
         is_operations = self._keyword_operations(lower)
@@ -77,6 +87,14 @@ class PipelineOrchestrator:
             elif h == "mixed":
                 is_security = is_operations = True
 
+        # D4: low confidence or explicit mixed → widen routing (include both specialists if relevant)
+        is_uncertain = conf < 0.55 or problem_type == "mixed"
+        if is_uncertain:
+            # For uncertain cases, pull security + operations coverage unless CLI hint strongly narrows
+            if not (hint and str(hint).lower() in ("security", "itil", "operations", "service_management")):
+                is_security = is_security or True
+                is_operations = is_operations or (problem_type in ("mixed", "service_management") or conf < 0.50)
+
         specialist_queue = self._specialists_for_type(
             problem_type,
             is_security=is_security,
@@ -91,6 +109,8 @@ class PipelineOrchestrator:
             is_operations=is_operations,
             is_problem=is_problem,
             specialist_queue=specialist_queue,
+            classification_confidence=round(conf, 3),
+            is_uncertain=bool(is_uncertain),
         )
 
     def build_problem_loop_plan(self, ctx: OrchestrationContext) -> PipelinePlan:
@@ -156,6 +176,23 @@ def standalone_workflow_for_agent(agent: str) -> str | None:
     if agent == STAGE_OPERATIONS:
         return WORKFLOW_OPERATIONS_STANDALONE
     return None
+
+
+def specialists_for_type(
+    problem_type: ProblemType, *, is_security: bool, is_operations: bool
+) -> list[str]:
+    """
+    Single source of truth for the ordered specialist agent queue.
+
+    Problem type (security / service_management / mixed) takes precedence;
+    keywords act as tie-breaker only for pure 'technical' cases.
+
+    All callers (Orchestrator, Planner, Supervisor) should prefer this function
+    for the main problem-solving flow (P1 unification).
+    """
+    return PipelineOrchestrator._specialists_for_type(
+        problem_type, is_security=is_security, is_operations=is_operations
+    )
 
 
 def orchestration_metadata(ctx: OrchestrationContext, plan: PipelinePlan) -> dict[str, Any]:

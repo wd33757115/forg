@@ -373,7 +373,7 @@ def run_tool_research(
         resolved_type = problem_type  # type: ignore[assignment]
         type_reason = "explicit"
     else:
-        resolved_type, type_reason = classify_problem(problem_statement, hint=hint)
+        resolved_type, type_reason, _conf = classify_problem(problem_statement, hint=hint)
 
     level = str((state.get("rule_pack") or {}).get("protection_level", "3"))
     modules = modules_for_problem_type(resolved_type)

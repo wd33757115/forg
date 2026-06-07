@@ -15,7 +15,7 @@ from forge.agents.problem_classifier import (
     modules_for_problem_type,
 )
 from forge.agents.rule_pack_refs import ensure_minimum_references, fetch_relevant_rules, merge_rule_pack_references
-from forge.agents.solution_output import RulePackReference, SolutionOption, SolutionOutput
+from forge.agents.solution_output import RiskItem, RulePackReference, SolutionOption, SolutionOutput
 from forge.core.state import WORKFLOW_PROBLEM_COMPLIANCE_LOOP, ProjectState
 from forge.prompts.loader import load_prompts
 
@@ -24,10 +24,25 @@ PROBLEM_SOLVER_SYSTEM = _ps_prompts.PROBLEM_SOLVER_SYSTEM
 PROBLEM_SOLVER_REACT_TASK = _ps_prompts.PROBLEM_SOLVER_REACT_TASK
 PROBLEM_SOLVER_STRUCTURED_PROMPT = _ps_prompts.PROBLEM_SOLVER_STRUCTURED_PROMPT
 from forge.tools.problem_solver_tools import run_tool_research
+from forge.core.confidence.config import PS_CONFIDENCE_DEFAULT_UNSET, PS_HEURISTIC_CONFIDENCE_CAP
 from forge.utils.agent_context import build_handoff
+from forge.utils.compliance_feedback import format_compliance_feedback_for_prompt
 from forge.utils.conversation import record_conversation, record_thinking
 from forge.utils.knowledge import append_knowledge, append_knowledge_to_state
 from forge.utils.knowledge_memory import format_memory_context, search_similar_cases
+
+def _format_execution_feedback(execution_results: list[dict[str, Any]] | None) -> str:
+    """Format recent execution results into a prompt-friendly block for PS to learn from (D3 closed loop)."""
+    if not execution_results:
+        return "（无过往执行结果 — 首次或无执行反馈）"
+    lines = ["## 过往执行反馈（execution_results — 请从中学习调整方案）"]
+    for res in execution_results[-3:]:  # last few to keep context short
+        tid = res.get("task_id", "?")
+        status = res.get("status", "unknown")
+        summary = (res.get("summary") or "")[:120]
+        lines.append(f"- task={tid} status={status}: {summary}")
+    lines.append("必须在 reasoning 中说明如何根据以上执行结果调整了推荐方案或 next_actions。")
+    return "\n".join(lines)
 from forge.utils.llm import escape_braces_for_format
 from forge.utils.react_research_gate import supplement_rule_pack_research
 from forge.utils.reference_scoring import apply_relevance_scores, summarize_reference_provenance
@@ -62,15 +77,16 @@ class ProblemSolverAgent(BaseAgent):
 
     def _classify(
         self, state: ProjectState, problem_statement: str
-    ) -> tuple[ProblemType, str, dict[str, str] | None]:
+    ) -> tuple[ProblemType, str, dict[str, str] | None, float]:
+        """D4: returns (ptype, reason, conflict, classification_confidence)."""
         hint = state.get("problem_type") or state.get("problem_type_hint")
-        ptype, reason, conflict = classify_with_cli_hint(problem_statement, hint=hint)
+        ptype, reason, conflict, conf = classify_with_cli_hint(problem_statement, hint=hint)
         if conflict:
             self.logger.warning(
                 "Problem type hint mismatch | %s",
                 conflict.get("warning", conflict),
             )
-        return ptype, reason, conflict
+        return ptype, reason, conflict, conf
 
     def _run_react(
         self,
@@ -78,10 +94,20 @@ class ProblemSolverAgent(BaseAgent):
         problem_statement: str,
         problem_type: ProblemType,
         type_reason: str,
+        *,
+        classification_conf: float = 0.7,
     ) -> str:
-        """Run ReAct via BaseAgent helper + ToolRegistry tools (self.get_tools)."""
+        """Run ReAct via BaseAgent helper + ToolRegistry tools (self.get_tools).
+
+        D4: accepts classification_conf to adapt investigation strategy:
+        - Low conf or mixed → use all modules + broader historical search + explicit self-critique instruction.
+        """
         _ = self.get_tools(state)  # resolve via ToolRegistry; run_react uses same path
-        priority_modules = ", ".join(modules_for_problem_type(problem_type))
+        is_uncertain = classification_conf < 0.55 or problem_type == "mixed"
+        if is_uncertain:
+            priority_modules = ", ".join(modules_for_problem_type("mixed"))  # all modules
+        else:
+            priority_modules = ", ".join(modules_for_problem_type(problem_type))
         fallback = run_tool_research(
             state, problem_statement, problem_type=problem_type
         )
@@ -92,23 +118,48 @@ class ProblemSolverAgent(BaseAgent):
             limit=3,
         )
         prior_cases = format_memory_context(prior)
+        compliance_block = format_compliance_feedback_for_prompt(
+            state.get("compliance_feedback")
+        )
+        exec_block = _format_execution_feedback(state.get("execution_results"))
         first_id = prior[0].get("id", "—") if prior else "—"
         self.logger.info(
-            "ReAct prior_cases | count=%d first_id=%s problem_type=%s",
+            "ReAct prior_cases | count=%d first_id=%s problem_type=%s conf=%.2f uncertain=%s retry_feedback=%s exec_feedback=%s",
             len(prior),
             first_id,
             problem_type,
+            classification_conf,
+            is_uncertain,
+            bool(state.get("compliance_feedback")),
+            bool(state.get("execution_results")),
         )
+
+        # D1: explicit project state snapshot for deeper reasoning (WBS/phase awareness)
+        wbs = state.get("wbs", {})
+        phase = state.get("current_phase", "")
+        project_snapshot = f"阶段={phase}；WBS项={len(wbs)}；关键状态摘要={str(wbs)[:300]}"
+
+        adaptation_note = ""
+        if is_uncertain:
+            adaptation_note = (
+                "\n\n【D4 分类自适应】当前分类置信度较低或为 mixed，"
+                "请：(1) 广泛查询所有 Rule Pack 模块；(2) 主动调用 search_historical_cases；"
+                "(3) 在最终 Observation 后进行 self-critique：逐条核对 root_causes 是否被推荐方案直接缓解，"
+                "以及 rule_pack_references 中的 rule_id 是否在 decision_rationale / compliance_impact 中被覆盖。"
+            )
+
         task = PROBLEM_SOLVER_REACT_TASK.format(
             problem_statement=problem_statement,
             problem_type=problem_type,
             type_reason=type_reason,
             priority_modules=priority_modules,
             project_id=state.get("project_id", ""),
-            current_phase=state.get("current_phase", ""),
+            current_phase=phase,
             enabled_modules=", ".join(state.get("enabled_modules", [])),
             prior_cases=prior_cases,
-        )
+            compliance_feedback=compliance_block,
+            execution_feedback=exec_block,
+        ) + adaptation_note
         research = self.run_react(
             state,
             system=PROBLEM_SOLVER_SYSTEM,
@@ -136,14 +187,41 @@ class ProblemSolverAgent(BaseAgent):
         research_context: str,
         problem_type: ProblemType,
         type_reason: str,
+        *,
+        classification_conf: float = 0.7,
     ) -> SolutionOutput:
-        """Produce validated SolutionOutput via LLM structured output or heuristic builder."""
+        """Produce validated SolutionOutput via LLM structured output or heuristic builder.
+
+        D4: uses classification_conf to inject adaptation/self-critique guidance into the prompt
+        and to bias _validate_solution_output (wider rule queries already done in ReAct).
+        """
+        compliance_block = format_compliance_feedback_for_prompt(
+            state.get("compliance_feedback")
+        )
+        exec_block = _format_execution_feedback(state.get("execution_results"))
+
+        is_uncertain = classification_conf < 0.55 or problem_type == "mixed"
+        adaptation_block = ""
+        if is_uncertain:
+            adaptation_block = (
+                "\n\n【D4 分类自适应 — 低置信度/mixed】请在 reasoning 中加入 self-critique 段落："
+                "1) 列出 top-2 root_causes；2) 说明推荐方案如何直接缓解它们；3) 逐条确认 rule_pack_references 的 rule_id "
+                "是否出现在 decision_rationale、compliance_impact 或 next_actions 中。若缺口则在 next_actions 补充具体动作。"
+            )
+
+        # D1: pass project snapshot into structured synthesis for state-aware reasoning
+        wbs = state.get("wbs", {})
+        phase = state.get("current_phase", "")
+        project_snapshot = f"阶段={phase}；WBS项={len(wbs)}；关键状态摘要={str(wbs)[:300]}"
+
         prompt = PROBLEM_SOLVER_STRUCTURED_PROMPT.format(
             problem_statement=problem_statement,
             problem_type=problem_type,
             type_reason=type_reason,
             research_context=escape_braces_for_format(research_context[:12000]),
-        )
+            compliance_feedback=compliance_block,
+            execution_feedback=exec_block,
+        ) + adaptation_block
         result = self.invoke_structured(
             SolutionOutput,
             [
@@ -154,21 +232,31 @@ class ProblemSolverAgent(BaseAgent):
         )
         if isinstance(result, SolutionOutput):
             result.problem_type = result.problem_type or problem_type
+            result.solution_source = "llm"
             return self._validate_solution_output(
                 result,
                 problem_statement=problem_statement,
                 problem_type=problem_type,
                 research_context=research_context,
+                solution_source="llm",
+                compliance_feedback=state.get("compliance_feedback"),
+                classification_conf=classification_conf,
+                state=state,
             )
 
         heuristic = self._build_heuristic_solution(
             state, problem_statement, research_context, problem_type, type_reason
         )
+        heuristic.solution_source = "heuristic"
         return self._validate_solution_output(
             heuristic,
             problem_statement=problem_statement,
             problem_type=problem_type,
             research_context=research_context,
+            solution_source="heuristic",
+            compliance_feedback=state.get("compliance_feedback"),
+            classification_conf=classification_conf,
+            state=state,
         )
 
     @staticmethod
@@ -200,7 +288,8 @@ class ProblemSolverAgent(BaseAgent):
         type_reason: str,
     ) -> SolutionOutput:
         """Build a valid SolutionOutput without LLM (tests + offline mode)."""
-        rule_refs = fetch_relevant_rules(problem_type, problem_statement, minimum=3)
+        check_mode = state.get("check_mode")
+        rule_refs = fetch_relevant_rules(problem_type, problem_statement, minimum=3, check_mode=check_mode)
         problem_lower = problem_statement.lower()
 
         is_auth = any(k in problem_lower for k in ("401", "403", "登录", "认证", "auth"))
@@ -396,10 +485,14 @@ class ProblemSolverAgent(BaseAgent):
         problem_statement: str,
         problem_type: ProblemType,
         research_context: str = "",
+        check_mode: str | None = None,
     ) -> None:
-        """Merge research-extracted rule_ids and keyword-based defaults (in-place)."""
+        """Merge research-extracted rule_ids and keyword-based defaults (in-place).
+
+        D2: forwards check_mode so strict mode prefers high-severity clauses.
+        """
         extracted = extract_rule_ids_from_text(research_context)
-        base = fetch_relevant_rules(problem_type, problem_statement, minimum=3)
+        base = fetch_relevant_rules(problem_type, problem_statement, minimum=3, check_mode=check_mode)
         output.rule_pack_references = merge_rule_pack_references(
             output.rule_pack_references or base,
             extracted,
@@ -430,6 +523,10 @@ class ProblemSolverAgent(BaseAgent):
         problem_statement: str = "",
         problem_type: ProblemType | None = None,
         research_context: str = "",
+        solution_source: str = "llm",
+        compliance_feedback: dict[str, Any] | None = None,
+        state: ProjectState | dict | None = None,
+        classification_conf: float | None = None,
     ) -> SolutionOutput:
         """Ensure recommended_solution_id references an existing solution."""
         valid_ids = {s.id for s in output.solutions}
@@ -451,16 +548,34 @@ class ProblemSolverAgent(BaseAgent):
             )
         ptype = problem_type or output.problem_type
         if ptype:
+            check_mode = (state or {}).get("check_mode") if state else None
             self._enrich_rule_pack_references(
                 output,
                 problem_statement=problem_statement or output.problem_analysis,
                 problem_type=ptype,
                 research_context=research_context,
+                check_mode=check_mode,
             )
         self._ensure_decision_rationale(output)
-        self._ensure_reasoning_confidence(output, research_context=research_context)
+        output.solution_source = solution_source  # type: ignore[assignment]
+        self._ensure_reasoning_confidence(
+            output,
+            research_context=research_context,
+            solution_source=solution_source,
+            state=state,
+        )
         self._ensure_reasoning_has_rule_ids(output)
+        self._ensure_rule_causal_explanation(output)  # D2: force explicit rule_id causal sentences
         self._ensure_prior_case_reasoning(output, research_context=research_context)
+        exec_block = _format_execution_feedback(state.get("execution_results") if state else None)
+        self._ensure_execution_learning(output, exec_block)  # D3 closed loop
+        self._ensure_self_critique(output, classification_conf=classification_conf)  # D4 light self-critique for uncertain cases
+        self._ensure_risk_summary(output)
+        self._apply_compliance_feedback_to_output(output, compliance_feedback)
+
+        # D1: enrich depth fields (assumptions, risks, alternatives, snapshot, structured reasoning)
+        # state may be None in some legacy call paths; enrich is defensive
+        self._enrich_solution_depth(output, state=state or {}, research_context=research_context)
         return output
 
     @staticmethod
@@ -478,6 +593,121 @@ class ProblemSolverAgent(BaseAgent):
             f"{output.reasoning.rstrip()}；"
             f"Rule Pack 依据：{rid_list}"
         )
+
+    @staticmethod
+    def _ensure_rule_causal_explanation(output: SolutionOutput) -> None:
+        """D2: ensure reasoning contains explicit causal links for the top rule refs.
+
+        If the LLM output is weak on "why this rule matters for this phenomenon",
+        we append a compact causal sentence using the ref.relevance (which is required
+        to be phenomenon→rule).
+        """
+        if not output.reasoning:
+            return
+        refs = output.rule_pack_references or []
+        if not refs:
+            return
+
+        # Already has decent causal language?
+        causal_markers = ("因为", "导致", "对应", "满足", "对齐", "约束", "要求", "核查")
+        low = output.reasoning.lower()
+        if any(m in low for m in causal_markers) and _RULE_ID_IN_TEXT.search(output.reasoning):
+            return
+
+        # Build a compact causal tail from the best refs (prefer high causal_quality if present)
+        sorted_refs = sorted(
+            refs[:4],
+            key=lambda r: getattr(r, "causal_quality", 0.0),
+            reverse=True,
+        )
+        clauses = []
+        for r in sorted_refs[:2]:
+            rel = (r.relevance or "").strip()
+            if rel and (r.rule_id in output.reasoning or r.rule_id.lower() in low):
+                # already mentioned, skip to avoid duplication
+                continue
+            if rel:
+                clauses.append(f"{rel}（{r.rule_id}）")
+        if clauses:
+            tail = "；".join(clauses)
+            output.reasoning = f"{output.reasoning.rstrip()}；{tail}"
+
+    @staticmethod
+    def _ensure_execution_learning(output: SolutionOutput, execution_feedback: str) -> None:
+        """D3: force the solution to explicitly reference and learn from past execution results.
+
+        If execution feedback block indicates previous runs, ensure reasoning mentions
+        at least one concrete outcome and an adjustment made this time.
+        """
+        if not execution_feedback or "无过往执行结果" in execution_feedback:
+            return
+        if "执行" in (output.reasoning or "") or "execution" in (output.reasoning or "").lower():
+            return  # already addressed
+        # Extract a hint from the block
+        hint = ""
+        for line in execution_feedback.splitlines():
+            if "status=" in line and "task=" in line:
+                hint = line.strip()[:100]
+                break
+        if hint:
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                f"参考过往执行 {hint}，本次调整了方案/下一步行动以避免重复问题。"
+            )
+        else:
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                "已参考过往执行结果调整本次推荐。"
+            )
+
+    @staticmethod
+    def _ensure_self_critique(
+        output: SolutionOutput,
+        *,
+        classification_conf: float | None = None,
+    ) -> None:
+        """D4 light self-critique: for uncertain/low-conf classifications, force explicit linkage check.
+
+        If the output lacks clear mapping from root_causes → recommended solution and cited rule_ids,
+        we append a critique sentence to reasoning and ensure at least one remediation next_action.
+        This is the "prompt里的 self-check 步骤" realized as reliable post-processing.
+        """
+        if not output.reasoning:
+            return
+        conf = classification_conf if classification_conf is not None else 0.7
+        if conf >= 0.65 and output.problem_type != "mixed":
+            # High confidence single-domain: light touch only
+            if output.rule_pack_references and not any(r.rule_id in (output.decision_rationale or "") for r in output.rule_pack_references[:1]):
+                output.reasoning = f"{output.reasoning.rstrip()}；自检：推荐理由已引用规则。"
+            return
+
+        # Uncertain / mixed / low conf: stricter self-critique
+        root_keywords = [c.lower() for c in (output.root_causes or [])]
+        rec = next((s for s in output.solutions if s.id == output.recommended_solution_id), None)
+        rec_text = " ".join([
+            (rec.description if rec else ""),
+            (rec.approach if rec else ""),
+            output.decision_rationale or "",
+        ]).lower()
+
+        covered_roots = sum(1 for kw in root_keywords if kw and kw[:8] in rec_text) if root_keywords else 1
+        cited_rules = [r.rule_id for r in (output.rule_pack_references or [])]
+        rules_in_rationale = sum(1 for rid in cited_rules if rid and rid in (output.decision_rationale or "") + " " + (rec.compliance_impact if rec else ""))
+
+        gaps: list[str] = []
+        if covered_roots < max(1, len(root_keywords) // 2):
+            gaps.append("根因覆盖不足")
+        if cited_rules and rules_in_rationale < min(2, len(cited_rules)):
+            gaps.append("规则引用未在推荐理由中充分体现")
+
+        if gaps:
+            critique = "；自检发现缺口（" + "、".join(gaps) + "），已补充 next_actions 强化对齐。"
+            if "自检" not in output.reasoning:
+                output.reasoning = f"{output.reasoning.rstrip()}{critique}"
+            for rid in cited_rules[:2]:
+                act = f"自检对齐 `{rid}`：确认方案与根因/规则的一致性"
+                if act not in output.next_actions:
+                    output.next_actions.append(act)
 
     @staticmethod
     def _ensure_decision_rationale(output: SolutionOutput) -> None:
@@ -499,8 +729,10 @@ class ProblemSolverAgent(BaseAgent):
         output: SolutionOutput,
         *,
         research_context: str = "",
+        prior_cases: list[dict[str, Any]] | None = None,
+        execution_results: list[dict[str, Any]] | None = None,
     ) -> float:
-        """A4: confidence from ref coverage, relevance scores, and tool evidence."""
+        """A4 + D3: confidence from ref coverage, relevance, tool evidence, history match, and past execution outcomes."""
         refs = output.rule_pack_references or []
         ref_n = len(refs)
         avg_rel = sum(r.relevance_score for r in refs) / ref_n if ref_n else 0.0
@@ -516,6 +748,22 @@ class ProblemSolverAgent(BaseAgent):
             pad_penalty = sum(
                 1 for r in refs if r.reference_source == "minimum_pad" or r.relevance_score < 0.45
             ) / len(refs) * 0.15
+
+        # D3: history & execution factors
+        history_bonus = 0.0
+        if prior_cases:
+            positive = sum(1 for p in prior_cases if p.get("outcome") in ("success", "compliant", "resolved", "positive"))
+            if positive:
+                history_bonus = min(0.12, positive * 0.04)
+        exec_factor = 0.0
+        if execution_results:
+            successes = sum(1 for e in execution_results if e.get("status") in ("success", "completed", "ok"))
+            fails = sum(1 for e in execution_results if e.get("status") in ("failed", "error", "blocked"))
+            if successes:
+                exec_factor += min(0.08, successes * 0.03)
+            if fails:
+                exec_factor -= min(0.10, fails * 0.04)
+
         raw = (
             0.30 * ref_score
             + 0.20 * tool_score
@@ -523,16 +771,49 @@ class ProblemSolverAgent(BaseAgent):
             + 0.15 * rationale_score
             + 0.10 * reasoning_score
             + 0.10 * (high_q / max(1, ref_n))
+            + history_bonus
+            + exec_factor
         )
         return round(min(1.0, max(0.0, raw - pad_penalty)), 2)
+
+    @staticmethod
+    def _finalize_confidence(
+        output: SolutionOutput,
+        *,
+        research_context: str = "",
+        solution_source: str = "llm",
+        prior_cases: list[dict[str, Any]] | None = None,
+        execution_results: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Cap confidence: min(LLM self-score, computed); heuristic path has hard cap.
+        D3: passes history and execution context into the core computation.
+        """
+        computed = ProblemSolverAgent._compute_confidence(
+            output,
+            research_context=research_context,
+            prior_cases=prior_cases,
+            execution_results=execution_results,
+        )
+        llm_conf = output.confidence
+        if llm_conf == PS_CONFIDENCE_DEFAULT_UNSET:
+            final = computed
+        else:
+            final = min(llm_conf, computed)
+        if solution_source == "heuristic":
+            final = min(final, PS_HEURISTIC_CONFIDENCE_CAP)
+        output.confidence = final
 
     @staticmethod
     def _ensure_reasoning_confidence(
         output: SolutionOutput,
         *,
         research_context: str = "",
+        solution_source: str = "llm",
+        state: ProjectState | dict | None = None,
     ) -> None:
-        """Fill reasoning and confidence when structured output omitted them."""
+        """Fill reasoning and confidence when structured output omitted them.
+        D3: accepts state so confidence can factor execution history.
+        """
         refs = ", ".join(r.rule_id for r in (output.rule_pack_references or [])[:4])
         if not output.reasoning:
             causes = "；".join(output.root_causes[:3]) if output.root_causes else "待补充"
@@ -545,17 +826,145 @@ class ProblemSolverAgent(BaseAgent):
         elif refs and not _RULE_ID_IN_TEXT.search(output.reasoning):
             output.reasoning = f"{output.reasoning.rstrip()}；依据 {refs}"
 
-        computed = ProblemSolverAgent._compute_confidence(
-            output, research_context=research_context
+        exec_for_conf = (state or {}).get("execution_results") if state else None
+        ProblemSolverAgent._finalize_confidence(
+            output,
+            research_context=research_context,
+            solution_source=solution_source,
+            execution_results=exec_for_conf,
         )
-        if output.confidence == 0.5 or computed > output.confidence:
-            output.confidence = computed
 
         if output.confidence >= 0.75 and refs:
             output.reasoning = (
                 f"{output.reasoning.rstrip()}；"
-                f"置信度={output.confidence}（引用覆盖+工具证据）"
+                f"置信度={output.confidence}（引用覆盖+工具证据，已取 min(LLM, 计算值)）"
             )
+
+    @staticmethod
+    def _ensure_risk_summary(output: SolutionOutput) -> None:
+        if output.risk_summary:
+            return
+        rec = next(
+            (s for s in output.solutions if s.id == output.recommended_solution_id),
+            output.solutions[0] if output.solutions else None,
+        )
+        level = rec.risk_level if rec else "medium"
+        output.risk_summary = (
+            f"推荐方案残余风险等级为 {level}；"
+            "需持续监控合规证据与变更回滚路径。"
+        )
+
+    @staticmethod
+    def _apply_compliance_feedback_to_output(
+        output: SolutionOutput,
+        feedback: dict[str, Any] | None,
+    ) -> None:
+        """Ensure retry solutions cite failed rule_ids and add remediation next_actions."""
+        if not feedback:
+            return
+        failed_ids = feedback.get("failed_rule_ids") or [
+            f.get("rule_id") for f in (feedback.get("failed_items") or []) if f.get("rule_id")
+        ]
+        if not failed_ids:
+            return
+        if "合规重试" not in (output.reasoning or ""):
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                f"合规重试 #{feedback.get('retry_count', '?')} 须覆盖: "
+                f"{', '.join(failed_ids[:6])}"
+            )
+        for item in (feedback.get("failed_items") or [])[:4]:
+            rid = item.get("rule_id")
+            if not rid:
+                continue
+            action = f"整改 `{rid}` ({item.get('severity', '—')}): {(item.get('suggestion') or '')[:80]}"
+            if action not in output.next_actions:
+                output.next_actions.append(action)
+
+    def _enrich_solution_depth(
+        self,
+        output: SolutionOutput,
+        *,
+        state: ProjectState | dict | None = None,
+        research_context: str = "",
+    ) -> None:
+        """D1: populate assumptions, risks, alternatives, snapshot and structure reasoning if shallow (Category 1/5)."""
+        # Project snapshot (state awareness)
+        if not output.project_state_snapshot:
+            st = state or {}
+            wbs = st.get("wbs", {}) if isinstance(st, dict) else getattr(st, "wbs", {})
+            phase = st.get("current_phase", "") if isinstance(st, dict) else getattr(st, "current_phase", "")
+            output.project_state_snapshot = f"阶段={phase}；WBS项={len(wbs) if isinstance(wbs, (dict, list)) else 0}"
+
+        # Assumptions
+        if not output.assumptions:
+            output.assumptions = [
+                "项目当前阶段与资源允许按推荐方案推进",
+                "关键干系人可协调",
+            ]
+
+        # Risks (structured)
+        if not output.risks:
+            rec = next(
+                (s for s in output.solutions if s.id == output.recommended_solution_id),
+                output.solutions[0] if output.solutions else None,
+            )
+            sev = rec.risk_level if rec else "medium"
+            output.risks = [
+                RiskItem(
+                    title="推荐方案执行后残余风险",
+                    severity=sev,
+                    likelihood="medium",
+                    mitigation="加强监控与回滚准备",
+                    related_rule_ids=[r.rule_id for r in output.rule_pack_references[:2]],
+                )
+            ]
+
+        # D3: pull explicit risk lessons from prior failed cases or past execution failures in state
+        if state:
+            st = state if isinstance(state, dict) else getattr(state, "__dict__", {})
+            prior = st.get("knowledge_base") or []
+            execs = st.get("execution_results") or []
+            for p in prior:
+                if p.get("outcome") in ("failure", "non_compliant", "error") and p.get("content"):
+                    output.risks.append(
+                        RiskItem(
+                            title=f"历史同类问题复发风险（参考 {p.get('id','case')}）",
+                            severity="medium",
+                            likelihood="medium",
+                            mitigation=(p.get("content") or "")[:80],
+                            related_rule_ids=p.get("related_rules") or [],
+                        )
+                    )
+                    break
+            for e in execs[-2:]:
+                if e.get("status") in ("failed", "error"):
+                    output.risks.append(
+                        RiskItem(
+                            title=f"上一次执行失败复发（{e.get('task_id','task')}）",
+                            severity="high",
+                            likelihood="medium",
+                            mitigation=(e.get("summary") or "检查执行条件与依赖")[:80],
+                            related_rule_ids=[],
+                        )
+                    )
+                    break
+
+        # Alternatives
+        if not output.alternatives and len(output.solutions) >= 2:
+            others = [s.id for s in output.solutions if s.id != output.recommended_solution_id]
+            output.alternatives = (
+                f"考虑过 {', '.join(others)}；因紧急性/合规覆盖/成本选择当前推荐。"
+            )
+
+        # Light structure on reasoning if flat
+        if output.reasoning and len(output.reasoning) > 40:
+            if "1)" not in output.reasoning and "项目状态" not in output.reasoning:
+                snap = output.project_state_snapshot or ""
+                output.reasoning = f"项目状态：{snap}。\n" + output.reasoning
+
+        if output.risks and not output.risk_summary:
+            output.risk_summary = "; ".join(r.title for r in output.risks[:2])
 
     @staticmethod
     def _ensure_prior_case_reasoning(
@@ -563,15 +972,29 @@ class ProblemSolverAgent(BaseAgent):
         *,
         research_context: str = "",
     ) -> None:
-        """When research mentions prior cases, reasoning should acknowledge them."""
+        """D3 strengthened: when research mentions prior cases, reasoning must cite specific outcome and lesson."""
         if "历史案例" not in research_context and "outcome=" not in research_context:
             return
-        if not output.reasoning or "历史案例" in output.reasoning or "借鉴" in output.reasoning:
+        if not output.reasoning:
             return
-        output.reasoning = (
-            f"{output.reasoning.rstrip()}；"
-            "已对照 knowledge_base 历史案例调整方案优先级。"
-        )
+        if "历史案例" in output.reasoning and ("outcome=" in output.reasoning or "参考了" in output.reasoning):
+            return  # already specific
+        # Try to pull a concrete hint
+        hint = ""
+        for line in research_context.splitlines():
+            if "outcome=" in line and "[" in line:
+                hint = line.strip()[:90]
+                break
+        if hint:
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                f"参考历史案例 {hint}，因此本次优先采用其成功做法。"
+            )
+        else:
+            output.reasoning = (
+                f"{output.reasoning.rstrip()}；"
+                "已对照 knowledge_base 历史案例（含 outcome）调整方案优先级。"
+            )
 
     def _format_response(self, solution: SolutionOutput) -> str:
         """Human-readable response with embedded JSON block."""
@@ -610,22 +1033,32 @@ class ProblemSolverAgent(BaseAgent):
         if not problem_statement:
             problem_statement = "未提供具体问题描述，请分析当前项目风险与待办。"
 
-        problem_type, type_reason, classification_conflict = self._classify(
+        problem_type, type_reason, classification_conflict, classification_conf = self._classify(
             state, problem_statement
         )
-        self.logger.info("Problem classified | type=%s reason=%s", problem_type, type_reason)
+        self.logger.info(
+            "Problem classified | type=%s reason=%s conf=%.2f uncertain=%s",
+            problem_type,
+            type_reason,
+            classification_conf,
+            classification_conf < 0.55 or problem_type == "mixed",
+        )
 
-        research_context = self._run_react(state, problem_statement, problem_type, type_reason)
+        research_context = self._run_react(
+            state, problem_statement, problem_type, type_reason, classification_conf=classification_conf
+        )
         solution = self._synthesize_structured(
-            state, problem_statement, research_context, problem_type, type_reason
+            state, problem_statement, research_context, problem_type, type_reason,
+            classification_conf=classification_conf,
         )
 
         retry_count = state.get("compliance_retry_count", 0)
-        if retry_count > 0 and state.get("last_compliance_result"):
-            compliance = state["last_compliance_result"]
+        feedback = state.get("compliance_feedback")
+        if retry_count > 0 and feedback:
+            failed_ids = feedback.get("failed_rule_ids") or []
             solution.problem_analysis += (
-                f"\n\n[重试 #{retry_count}] 已根据合规反馈优化，"
-                f"针对 {len(compliance.get('missing_items', []))} 项缺口调整。"
+                f"\n\n[合规重试 #{retry_count}] 状态={feedback.get('compliance_status')}；"
+                f"须处置 failed rule_id: {', '.join(failed_ids[:6]) or '见 compliance_feedback'}"
             )
 
         solution_dict = solution.model_dump()

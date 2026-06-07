@@ -1,0 +1,299 @@
+{
+  "generated_at": "2026-06-07T16:06:15.877367+00:00",
+  "scenarios": {
+    "security": [
+      {
+        "rule_id": "db-bnd-001",
+        "module": "dengbao_2.0",
+        "title": "边界防护",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 1,
+        "source": "research"
+      },
+      {
+        "rule_id": "db-net-002",
+        "module": "dengbao_2.0",
+        "title": "入侵防范",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 1,
+        "source": "research"
+      },
+      {
+        "rule_id": "db-acs-002",
+        "module": "dengbao_2.0",
+        "title": "访问控制",
+        "relevance": "应授予管理用户所需最小权限，实现权限分离，默认拒绝访问",
+        "relevance_score": 0.72,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 1,
+        "source": "scored"
+      },
+      {
+        "rule_id": "si-ms-001",
+        "module": "base_si",
+        "title": "项目启动里程碑",
+        "relevance": "完成项目章程、干系人登记、范围说明书与 kick-off 会议纪要",
+        "relevance_score": 0.72,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 1,
+        "source": "scored"
+      },
+      {
+        "rule_id": "si-sec-001",
+        "module": "base_si",
+        "title": "安全集成要求",
+        "relevance": "集成方案须包含身份认证、传输加密、日志审计等安全设计",
+        "relevance_score": 0.72,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 1,
+        "source": "scored"
+      },
+      {
+        "rule_id": "si-wbs-001",
+        "module": "base_si",
+        "title": "WBS完整性",
+        "relevance": "项目必须定义完整的WBS，覆盖需求、设计、实施、测试、验收各阶段",
+        "relevance_score": 0.72,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 1,
+        "source": "scored"
+      },
+      {
+        "rule_id": "db-acs-001",
+        "module": "dengbao_2.0",
+        "title": "身份鉴别",
+        "relevance": "关键词「401」关联",
+        "relevance_score": 0.72,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 1,
+        "source": "keyword"
+      },
+      {
+        "rule_id": "db-aud-001",
+        "module": "dengbao_2.0",
+        "title": "安全审计",
+        "relevance": "关键词「等保」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 1,
+        "source": "keyword"
+      }
+    ],
+    "itil": [
+      {
+        "rule_id": "itil-cfg-001",
+        "module": "itil_iso20000",
+        "title": "配置管理",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "medium",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "itil-chg-002",
+        "module": "itil_iso20000",
+        "title": "CAB 变更评审",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "itil-inc-002",
+        "module": "itil_iso20000",
+        "title": "重大事件升级",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "itil-prb-001",
+        "module": "itil_iso20000",
+        "title": "问题管理",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "medium",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "itil-prb-002",
+        "module": "itil_iso20000",
+        "title": "已知错误管理",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "medium",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "itil-chg-001",
+        "module": "itil_iso20000",
+        "title": "变更管理",
+        "relevance": "关键词「itil」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "keyword"
+      },
+      {
+        "rule_id": "itil-inc-001",
+        "module": "itil_iso20000",
+        "title": "事件管理",
+        "relevance": "关键词「事件」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "keyword"
+      },
+      {
+        "rule_id": "itil-slm-001",
+        "module": "itil_iso20000",
+        "title": "服务级别管理",
+        "relevance": "关键词「sla」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "medium",
+        "strict_alignment": 0,
+        "source": "keyword"
+      }
+    ],
+    "mixed": [
+      {
+        "rule_id": "db-acs-002",
+        "module": "dengbao_2.0",
+        "title": "访问控制",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "db-aud-001",
+        "module": "dengbao_2.0",
+        "title": "安全审计",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "db-net-002",
+        "module": "dengbao_2.0",
+        "title": "入侵防范",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "db-net-003",
+        "module": "dengbao_2.0",
+        "title": "恶意代码防范（网络）",
+        "relevance": "调研材料引用",
+        "relevance_score": 0.88,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "research"
+      },
+      {
+        "rule_id": "si-sec-001",
+        "module": "base_si",
+        "title": "安全集成要求",
+        "relevance": "集成方案须包含身份认证、传输加密、日志审计等安全设计",
+        "relevance_score": 0.72,
+        "causal_quality": 0.5,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "scored"
+      },
+      {
+        "rule_id": "db-acs-001",
+        "module": "dengbao_2.0",
+        "title": "身份鉴别",
+        "relevance": "关键词「401」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 0,
+        "source": "keyword"
+      },
+      {
+        "rule_id": "db-bnd-001",
+        "module": "dengbao_2.0",
+        "title": "边界防护",
+        "relevance": "关键词「交换机」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "critical",
+        "strict_alignment": 0,
+        "source": "keyword"
+      },
+      {
+        "rule_id": "itil-inc-001",
+        "module": "itil_iso20000",
+        "title": "事件管理",
+        "relevance": "关键词「中断」关联",
+        "relevance_score": 0.66,
+        "causal_quality": 0.35,
+        "has_explicit_cause": false,
+        "severity": "high",
+        "strict_alignment": 0,
+        "source": "keyword"
+      }
+    ]
+  }
+}

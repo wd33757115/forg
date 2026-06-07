@@ -6,6 +6,21 @@ from forge.agents.problem_classifier import ProblemType, modules_for_problem_typ
 from forge.agents.solution_output import RulePackReference
 from forge.core.rule_pack import DEFAULT_PACK_FILE, RulePack
 
+# D2: simple severity loader (cached lightly via module level for perf in loops)
+_SEVERITY_INDEX: dict[str, str] | None = None
+
+
+def _get_severity_index() -> dict[str, str]:
+    global _SEVERITY_INDEX
+    if _SEVERITY_INDEX is None:
+        pack = RulePack.load_rule_pack(DEFAULT_PACK_FILE)
+        idx: dict[str, str] = {}
+        for mod in pack.modules.values():
+            for rule in mod.rules:
+                idx[rule.id] = rule.severity or "medium"
+        _SEVERITY_INDEX = idx
+    return _SEVERITY_INDEX
+
 # Keyword → preferred rule_ids for stronger offline/LLM reference coverage
 _TYPE_KEYWORD_RULES: dict[ProblemType, list[tuple[str, list[str]]]] = {
     "security": [
@@ -95,15 +110,32 @@ def fetch_relevant_rules(
     *,
     limit: int = 6,
     minimum: int = 3,
+    check_mode: str | None = None,
 ) -> list[RulePackReference]:
-    """Return Rule Pack rules most relevant to the problem type and keywords."""
+    """Return Rule Pack rules most relevant to the problem type and keywords.
+
+    D2 extension: when check_mode="strict", bias selection toward higher-severity
+    rules (high/critical) so that strict compliance checks get stronger clauses.
+    """
     pack = RulePack.load_rule_pack(DEFAULT_PACK_FILE)
     modules = modules_for_problem_type(problem_type)
     lower = problem_text.lower()
     refs: list[RulePackReference] = []
     seen: set[str] = set()
+    strict = (check_mode or "").lower() == "strict"
+    sev_index = _get_severity_index() if strict else {}
 
-    # 1) Keyword-triggered canonical rule_ids
+    def _sev_bonus(rid: str) -> int:
+        if not strict:
+            return 0
+        s = sev_index.get(rid, "medium")
+        if s in ("critical", "high"):
+            return 4
+        if s == "medium":
+            return 1
+        return 0
+
+    # 1) Keyword-triggered canonical rule_ids (D2: give extra weight in strict)
     for keyword, rule_ids in _TYPE_KEYWORD_RULES.get(problem_type, []):
         if keyword.lower() in lower:
             for rid in rule_ids:
@@ -118,7 +150,7 @@ def fetch_relevant_rules(
                     reference_source="keyword",
                 )
 
-    # 2) Score rules in priority modules
+    # 2) Score rules in priority modules (D2: severity boost for strict)
     for mod_id in modules:
         module = pack.get_module(mod_id)
         if module is None:
@@ -134,6 +166,7 @@ def fetch_relevant_rules(
                 frag = check.split(":")[-1] if ":" in check else check
                 if frag and frag.lower() in lower:
                     score += 1
+            score += _sev_bonus(rule.id)  # D2 strict bias
             if score > 0:
                 scored.append((score, rule))
         scored.sort(key=lambda x: -x[0])
@@ -149,7 +182,7 @@ def fetch_relevant_rules(
         if len(refs) >= limit:
             break
 
-    # 3) Pad to minimum with type defaults
+    # 3) Pad to minimum with type defaults (D2: for strict, prefer high-sev first)
     defaults: dict[ProblemType, list[tuple[str, str]]] = {
         "security": [("db-acs-001", "dengbao_2.0"), ("db-aud-001", "dengbao_2.0"), ("db-bnd-001", "dengbao_2.0")],
         "service_management": [
@@ -164,7 +197,14 @@ def fetch_relevant_rules(
             ("si-doc-001", "base_si"),
         ],
     }
-    for rule_id, mod_id in defaults.get(problem_type, defaults["technical"]):
+    default_list = defaults.get(problem_type, defaults["technical"])
+    if strict:
+        # sort defaults so high-severity come first
+        default_list = sorted(
+            default_list,
+            key=lambda t: (0 if _get_severity_index().get(t[0], "medium") in ("high", "critical") else 1, t[0])
+        )
+    for rule_id, mod_id in default_list:
         if len(refs) >= minimum:
             break
         _append_ref(
@@ -229,7 +269,7 @@ def ensure_minimum_references(
     """Guarantee at least ``minimum`` canonical Rule Pack references."""
     if len(refs) >= minimum:
         return refs
-    padded = fetch_relevant_rules(problem_type, problem_text, minimum=minimum, limit=max(minimum, 6))
+    padded = fetch_relevant_rules(problem_type, problem_text, minimum=minimum, limit=max(minimum, 6), check_mode=None)
     seen = {r.rule_id for r in refs}
     merged = list(refs)
     for ref in padded:

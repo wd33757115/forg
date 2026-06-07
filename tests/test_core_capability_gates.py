@@ -22,7 +22,7 @@ def test_ps_classification_golden_set():
     correct = 0
     for case in data["cases"]:
         hint = case.get("hint")
-        ptype, _ = classify_problem(case["question"], hint=hint)
+        ptype, _, _conf = classify_problem(case["question"], hint=hint)
         if ptype == case["expected"]:
             correct += 1
     rate = correct / len(data["cases"])

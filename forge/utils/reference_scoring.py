@@ -42,19 +42,50 @@ def apply_relevance_scores(
     refs: list[RulePackReference],
     problem_text: str,
 ) -> list[RulePackReference]:
-    """Attach relevance_score and sort descending (in-place on copies)."""
+    """Attach relevance_score + causal_quality (D2) and sort (in-place on copies)."""
     scored: list[RulePackReference] = []
     for ref in refs:
+        rel = score_rule_pack_reference(ref, problem_text)
+        causal = score_causal_explanation(ref, problem_text)
         updated = ref.model_copy(
-            update={"relevance_score": score_rule_pack_reference(ref, problem_text)}
+            update={"relevance_score": rel, "causal_quality": causal}
         )
         scored.append(updated)
-    scored.sort(key=lambda r: (-r.relevance_score, r.rule_id))
+    # Primary: relevance, secondary: causal quality (better explanations win ties)
+    scored.sort(key=lambda r: (-r.relevance_score, -getattr(r, "causal_quality", 0.0), r.rule_id))
     return scored
 
 
+def score_causal_explanation(ref: RulePackReference, problem_text: str) -> float:
+    """D2: lightweight causal chain quality in [0,1].
+
+    Rewards explicit links from observed phenomenon to the rule's constraint.
+    """
+    rel = (ref.relevance or "").lower()
+    text = (problem_text or "").lower()
+    rid = ref.rule_id.lower()
+
+    score = 0.5  # base for having a relevance string
+
+    causal_markers = ("因为", "导致", "对应", "满足", "对齐", "约束", "要求", "核查", "符合")
+    if any(m in rel for m in causal_markers):
+        score += 0.2
+
+    if rid in rel:
+        score += 0.15
+
+    # overlap with problem keywords makes it more specific
+    overlap = sum(1 for w in text.split() if len(w) > 2 and w in rel)
+    score += min(0.15, overlap * 0.03)
+
+    if any(g in rel for g in ("符合等保要求", "类型默认", "默认引用", "关键词")):
+        score -= 0.15
+
+    return round(min(1.0, max(0.0, score)), 2)
+
+
 def summarize_reference_provenance(refs: list[RulePackReference]) -> dict[str, Any]:
-    """Aggregate provenance for logging and acceptance metrics."""
+    """Aggregate provenance for logging and acceptance metrics (D2 extended)."""
     if not refs:
         return {
             "total": 0,
@@ -62,15 +93,18 @@ def summarize_reference_provenance(refs: list[RulePackReference]) -> dict[str, A
             "minimum_pad_ratio": 0.0,
             "high_relevance_ratio": 0.0,
             "avg_relevance_score": 0.0,
+            "avg_causal_quality": 0.0,
         }
     by_source = Counter(classify_reference_source(r) for r in refs)
     pad = by_source.get("minimum_pad", 0)
     high = sum(1 for r in refs if r.relevance_score >= 0.7)
-    avg = sum(r.relevance_score for r in refs) / len(refs)
+    avg_rel = sum(r.relevance_score for r in refs) / len(refs)
+    avg_causal = sum(getattr(r, "causal_quality", 0.0) for r in refs) / len(refs)
     return {
         "total": len(refs),
         "by_source": dict(by_source),
         "minimum_pad_ratio": round(pad / len(refs), 3),
         "high_relevance_ratio": round(high / len(refs), 3),
-        "avg_relevance_score": round(avg, 3),
+        "avg_relevance_score": round(avg_rel, 3),
+        "avg_causal_quality": round(avg_causal, 3),
     }

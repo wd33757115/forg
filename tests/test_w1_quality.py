@@ -13,7 +13,7 @@ from forge.core import create_initial_state
 
 
 def test_classify_hint_mismatch_warning():
-    _ptype, _reason, conflict = classify_with_cli_hint(
+    _ptype, _reason, conflict, _conf = classify_with_cli_hint(
         "数据库连接池耗尽导致接口超时",
         "security",
     )
@@ -23,7 +23,7 @@ def test_classify_hint_mismatch_warning():
 
 
 def test_classify_hint_match_no_warning():
-    _ptype, _reason, conflict = classify_with_cli_hint(
+    _ptype, _reason, conflict, _conf = classify_with_cli_hint(
         "用户登录401等保身份鉴别",
         "security",
     )

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from forge.agents.output_base import AgentOutputBase
@@ -24,6 +26,12 @@ class RulePackReference(BaseModel):
         le=1.0,
         description="Heuristic pertinence to the problem (higher = more specific)",
     )
+    causal_quality: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description="How well the relevance explains a causal link from phenomenon to this rule (D2)",
+    )
 
 
 class SolutionOption(BaseModel):
@@ -44,6 +52,16 @@ class SolutionOption(BaseModel):
     )
     estimated_effort: str = Field(default="medium", description="low | medium | high")
     risk_level: str = Field(default="medium", description="low | medium | high")
+
+
+class RiskItem(BaseModel):
+    """A residual risk associated with the recommended (or considered) solution."""
+
+    title: str
+    severity: str = Field(default="medium", description="low | medium | high | critical")
+    likelihood: str = Field(default="medium", description="low | medium | high")
+    mitigation: str = Field(default="")
+    related_rule_ids: list[str] = Field(default_factory=list)
 
 
 class SolutionOutput(AgentOutputBase):
@@ -92,4 +110,30 @@ class SolutionOutput(AgentOutputBase):
         ge=0.0,
         le=1.0,
         description="Self-assessed confidence in the recommended solution (0-1)",
+    )
+    solution_source: Literal["llm", "heuristic"] = Field(
+        default="llm",
+        description="llm=structured output path; heuristic=offline/LLM-fallback builder",
+    )
+    risk_summary: str = Field(
+        default="",
+        description="Brief residual risks if the recommended solution is executed",
+    )
+
+    # D1 depth extensions (Category 1 + 5)
+    assumptions: list[str] = Field(
+        default_factory=list,
+        description="Key assumptions made while forming the recommendation",
+    )
+    risks: list[RiskItem] = Field(
+        default_factory=list,
+        description="Structured residual risks with mitigation hints",
+    )
+    alternatives: str = Field(
+        default="",
+        description="Summary of other options considered and why the recommended one was chosen",
+    )
+    project_state_snapshot: str = Field(
+        default="",
+        description="Relevant snapshot of WBS / phase / known risks at analysis time (for explainability)",
     )

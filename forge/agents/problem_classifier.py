@@ -46,11 +46,17 @@ def _score(text: str, keywords: tuple[str, ...], *, strong: tuple[str, ...] = ()
     return score
 
 
-def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType, str]:
+def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType, str, float]:
     """
     Classify user problem into security / service_management / technical / mixed.
 
-    Returns (problem_type, human-readable reasoning).
+    Returns (problem_type, human-readable reasoning, classification_confidence 0.0-1.0).
+
+    D4 enhancements:
+    - Returns explicit confidence based on score strength and margin.
+    - On uncertain signals (low max score or small margin between top domains),
+      forces "mixed" and returns lower confidence. This triggers wider specialist
+      routing and more thorough investigation (more tools / modules) downstream.
     """
     if hint:
         hint_map: dict[str, ProblemType] = {
@@ -64,7 +70,7 @@ def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType
         }
         if hint in hint_map:
             ptype = hint_map[hint]
-            return ptype, f"CLI 指定类型: {PROBLEM_TYPE_LABELS[ptype]}"
+            return ptype, f"CLI 指定类型: {PROBLEM_TYPE_LABELS[ptype]}", 0.95
 
     lower = text.lower()
     sec = _score(lower, _SECURITY_KW, strong=_SECURITY_STRONG)
@@ -72,54 +78,77 @@ def classify_problem(text: str, *, hint: str | None = None) -> tuple[ProblemType
     tech = _score(lower, _TECH_KW, strong=_TECH_STRONG)
     tech_generic = sum(1 for k in _TECH_GENERIC if k in lower)
 
-    # Only count generic tech words if no strong tech signal
     if tech == 0 and tech_generic:
         tech = tech_generic
 
-    # Explicit mixed: security control + service outage in one question
     has_sec_strong = any(k in lower for k in _SECURITY_STRONG)
     has_outage = any(k in lower for k in ("中断", "宕机", "交换机", "outage", "sla"))
-    if has_sec_strong and (itil >= 1 or has_outage):
-        return "mixed", f"安全控制与运维中断并存（安全={sec}, ITIL={itil}）"
 
-    # Dual-domain → mixed (scored)
+    # Explicit mixed trigger (high confidence when clear overlap)
+    if has_sec_strong and (itil >= 1 or has_outage):
+        return "mixed", f"安全控制与运维中断并存（安全={sec}, ITIL={itil}）", 0.85
+
+    # Dual-domain → mixed
     domains = sum(1 for s in (sec, itil, tech) if s >= 2)
     if domains >= 2:
-        return "mixed", f"多域关键词并存（安全={sec}, ITIL={itil}, 技术={tech}）"
+        return "mixed", f"多域关键词并存（安全={sec}, ITIL={itil}, 技术={tech}）", 0.80
 
-    # Single-domain winners (strong signal first)
+    # Determine winner and raw scores
+    scores = {"security": sec, "service_management": itil, "technical": tech}
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    winner, win_score = sorted_scores[0]
+    second_score = sorted_scores[1][1] if len(sorted_scores) > 1 else 0
+
+    margin = win_score - second_score
+    max_score = win_score
+
+    # Uncertainty heuristic (D4): weak overall signal or tiny margin → force mixed + lower conf
+    uncertain = (max_score < 2) or (margin <= 1 and max_score < 4)
+    if uncertain and winner != "mixed":
+        # Force mixed to pull broader specialists and tools; confidence reflects weakness
+        conf = round(max(0.35, min(0.55, (max_score + margin) / 10.0)), 2)
+        return "mixed", f"信号较弱或域间差异小（max={max_score}, margin={margin}），不确定时走 mixed 以扩大调查范围", conf
+
+    # Single-domain winners
     if sec >= 2 and sec >= itil and sec >= tech:
-        return "security", f"等保/安全关键词得分最高（{sec}）"
+        conf = round(min(0.98, 0.55 + (sec - 1) * 0.12 + (margin * 0.05)), 2)
+        return "security", f"等保/安全关键词得分最高（{sec}）", conf
     if itil >= 2 and itil >= sec and itil >= tech:
-        return "service_management", f"ITIL/运维关键词得分最高（{itil}）"
+        conf = round(min(0.98, 0.55 + (itil - 1) * 0.12 + (margin * 0.05)), 2)
+        return "service_management", f"ITIL/运维关键词得分最高（{itil}）", conf
     if tech >= 1 and tech >= sec and tech >= itil:
-        return "technical", f"技术故障关键词得分最高（{tech}）"
+        conf = round(min(0.92, 0.50 + (tech - 1) * 0.10 + (margin * 0.04)), 2)
+        return "technical", f"技术故障关键词得分最高（{tech}）", conf
     if sec >= 1:
-        return "security", "命中等保/安全控制相关关键词"
+        conf = round(0.45 + sec * 0.08, 2)
+        return "security", "命中等保/安全控制相关关键词", conf
     if itil >= 1:
-        return "service_management", "命中 ITIL/事件/变更/SLA 关键词"
+        conf = round(0.45 + itil * 0.08, 2)
+        return "service_management", "命中 ITIL/事件/变更/SLA 关键词", conf
 
-    return "technical", "未命中明确分类关键词，默认按通用技术问题（general）处理"
+    # Default technical, but mark as low confidence (true unknown)
+    return "technical", "未命中明确分类关键词，默认按通用技术问题（general）处理", 0.40
 
 
 def classify_with_cli_hint(
     text: str,
     hint: str | None,
-) -> tuple[ProblemType, str, dict[str, str] | None]:
+) -> tuple[ProblemType, str, dict[str, str] | None, float]:
     """
     Classify using CLI hint when present.
 
-    When hint disagrees with keyword-only classification, returns a
-    ``classification_conflict`` dict for state / logging (A3).
+    Returns (ptype, reason, conflict_dict_or_None, classification_confidence).
+
+    D4: now propagates classification confidence (third value from classify_problem).
     """
     if not hint:
-        ptype, reason = classify_problem(text)
-        return ptype, reason, None
+        ptype, reason, conf = classify_problem(text)
+        return ptype, reason, None, conf
 
-    hinted, reason = classify_problem(text, hint=hint)
-    auto, auto_reason = classify_problem(text, hint=None)
+    hinted, reason, conf = classify_problem(text, hint=hint)
+    auto, auto_reason, _auto_conf = classify_problem(text, hint=None)
     if auto == hinted:
-        return hinted, reason, None
+        return hinted, reason, None, conf
 
     return hinted, reason, {
         "hint": hint,
@@ -131,7 +160,7 @@ def classify_with_cli_hint(
             f"CLI --type={hint} 映射为 {hinted}，"
             f"但自动分类为 {auto}（{auto_reason}）"
         ),
-    }
+    }, conf
 
 
 def modules_for_problem_type(problem_type: ProblemType) -> list[str]:

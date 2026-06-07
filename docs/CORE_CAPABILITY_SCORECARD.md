@@ -92,7 +92,57 @@ pytest tests/test_llm_reference_coverage.py -m llm -v
 
 ---
 
-## 6. 当前基线（签收后更新）
+## 6. P0 编排改进（2026-06）
+
+| 项 | 实现 |
+|----|------|
+| 结构化合规重试 | `state.compliance_feedback` + `utils/compliance_feedback.py` |
+| PS Prompt 注入 | `compliance_feedback` 块于 ReAct / Structured |
+| 置信度安全 | `min(LLM, computed)` + 启发式上限 `0.55` |
+| 方案来源标识 | `SolutionOutput.solution_source` (`llm` \| `heuristic`) |
+
+## 7. P1 编排收敛（2026-06 继续）
+
+**P1-1: Specialist 队列三处定义收敛**
+
+- 单一真相来源：`forge/core/orchestrator.py` 的 `specialists_for_type(problem_type, is_security, is_operations)`
+- `PipelinePlanner.build_specialist_queue` 现在内部通过 `classify_problem` + `specialists_for_type` 计算（不再是纯关键词老逻辑）
+- Supervisor 的主问题解决路径（PS entry + fallback）统一走 `Orchestrator` + `OrchestrationContext`
+- 独立入口（standalone security/ops）仍保留显式硬编码队列（有意为之的“只跑这个专家”路径）
+
+**P1-2: 合规闭环职责割裂**
+
+- 新模块 `forge/core/compliance_loop.py`
+  - 4 个谓词函数（`is_compliant` 等）+ `MAX_COMPLIANCE_RETRIES`
+  - `ComplianceLoopController` 类：
+    - `decide_after_compliance(state) -> SupervisorDecision`
+    - `build_retry_updates(...)`（含结构化 feedback）
+    - 内部 `_build_retry_feedback_message`
+- Supervisor 注入 `self._compliance_loop = ComplianceLoopController()`
+- `decide_after_compliance` 和重试状态准备委托给 controller
+- 向后兼容：`from forge.core.supervisor import is_compliant, should_generate_documents, ...` 仍可用（re-export）
+
+## 9. D3 深度（2026-06 继续，ProblemSolver 知识+闭环）
+
+## 10. D4 分类与自适应路由（2026-06-08）
+
+- classify_problem 升级为返回 confidence；不确定（低分/小 margin）自动 → mixed + 低 conf。
+- Orchestrator / PipelinePlanner 据 conf 自动加宽 specialist_queue（更多 Security + Operations）。
+- PS 接收 conf 后自适应：低 conf/mixed 时强制全模块 + 历史案例 + 注入 self-critique 要求；validate 阶段 _ensure_self_critique 做后处理缺口检测与 next_actions 补强。
+- PS-CLS-01 准确率门禁不受影响（golden 案例信号强）；新增 uncertain case 覆盖测试。
+- 验证：全量测试绿；offline KPI gate PASS。
+
+（继续保持与 P0/P1 可靠性不冲突原则。）
+
+- 执行反馈闭环：`state.execution_results` → `_format_execution_feedback` → 注入 PS ReAct/Structured Prompt；`_ensure_execution_learning` 强制 reasoning 引用执行结果并调整。
+- 知识利用：prior_cases（含 outcome/match）强制进入 reasoning（_ensure_prior_case_reasoning 强化）；历史失败案例自动补充结构化 risks。
+- 置信度自评估：`_compute_confidence` 加入 history_bonus + exec_factor（成功正向、失败负向），进入 min(LLM, computed) 路径。
+- 风险自评估：从 prior failed cases + recent exec failures 自动生成 RiskItem。
+- 验证：全量 250 passed；core_capability offline gate 持续绿。
+
+---
+
+## 8. 当前基线（签收后更新）
 
 运行 `eval_core_capability.py` 后在此记录：
 

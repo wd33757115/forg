@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from forge.agents.problem_classifier import classify_problem
 from forge.core.state import (
     WORKFLOW_OPERATIONS_STANDALONE,
     WORKFLOW_PROBLEM_COMPLIANCE_LOOP,
@@ -62,12 +63,20 @@ class PipelinePlanner:
         return "unknown"
 
     def build_specialist_queue(self, content: str, *, is_security: bool, is_operations: bool) -> list[str]:
-        queue: list[str] = []
-        if is_security:
-            queue.append(STAGE_SECURITY)
-        if is_operations:
-            queue.append(STAGE_OPERATIONS)
-        return queue
+        """
+        Compute specialist queue using the single source of truth (P1).
+
+        Delegates (lazily) to orchestrator.specialists_for_type after classifying problem_type.
+        D4: also considers classification confidence — low conf forces wider queue (mixed-like).
+        """
+        from forge.core.orchestrator import specialists_for_type
+
+        ptype, _, conf = classify_problem(content)
+        # Widen for uncertain classification (D4)
+        widen = conf < 0.55 or ptype == "mixed"
+        sec = is_security or widen
+        ops = is_operations or (widen and ptype in ("mixed", "service_management"))
+        return specialists_for_type(ptype, is_security=sec, is_operations=ops)
 
     def build_for_problem_loop(
         self,

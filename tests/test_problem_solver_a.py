@@ -19,7 +19,7 @@ from scripts.seed_demo_knowledge import seed_state
 
 
 def test_classify_conflict_dict():
-    _ptype, _reason, conflict = classify_with_cli_hint(
+    _ptype, _reason, conflict, _conf = classify_with_cli_hint(
         "数据库连接池耗尽导致接口超时",
         "security",
     )

@@ -225,7 +225,7 @@ def eval_ps_cls_01() -> KpiResult:
     wrong: list[str] = []
     for case in data["cases"]:
         hint = case.get("hint")
-        ptype, _ = classify_problem(case["question"], hint=hint)
+        ptype, _, _conf = classify_problem(case["question"], hint=hint)
         if ptype == case["expected"]:
             correct += 1
         else:
